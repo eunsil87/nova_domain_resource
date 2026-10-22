@@ -26,6 +26,9 @@ import {
   copyPlan,
   validateData,
   sortedPeople,
+  layoutIds,
+  moveGroup,
+  moveParent,
 } from "./core.js";
 import { FolderStore, rememberHandle, recalledHandle } from "./storage.js";
 const $ = (s) => document.querySelector(s),
@@ -404,7 +407,7 @@ function groupHTML(g) {
     .sort((a, b) => (a === g.leaderId ? -1 : b === g.leaderId ? 1 : 0))
     .map((id) => state.data.people.find((p) => p.id === id))
     .filter(Boolean);
-  return `<div class="group-card" draggable="true" data-drag-group="${g.id}" data-drop-group="${g.id}"><h3>${esc(g.name)} · ${g.members.length}명</h3><div class="actions" style="margin-bottom:10px"><small>리더 ${esc(nameOf(state.data.people, g.leaderId))}</small>${button("edit-group", "그룹 편집", "ghost small", `data-id="${g.id}"`)}</div>${members.map((p) => memberHTML(p, p.id === g.leaderId)).join("")}</div>`;
+  return `<div class="group-card" draggable="true" data-drag-group="${g.id}" data-drop-group="${g.id}"><h3 class="group-title" title="드래그하여 묶거나 순서를 바꿉니다"><span class="drag-grip" aria-hidden="true">⠿</span>${esc(g.name)} · ${g.members.length}명</h3><div class="actions" style="margin-bottom:10px"><small>리더 ${esc(nameOf(state.data.people, g.leaderId))}</small>${button("edit-group", "그룹 편집", "ghost small", `data-id="${g.id}"`)}</div>${members.map((p) => memberHTML(p, p.id === g.leaderId)).join("")}</div>`;
 }
 function groupsView() {
   const d = state.data,
@@ -414,18 +417,22 @@ function groupsView() {
       d,
       d.people.filter((p) => status(p) !== "종료" && !assigned.has(p.id)),
     );
-  const grouped = new Set(p.parents.flatMap((x) => x.groupIds));
+  const parentHTML = (parent) =>
+    `<section class="parent" draggable="true" data-drag-parent="${parent.id}" data-drop-parent="${parent.id}"><div class="parent-title"><strong title="드래그하여 순서를 바꿉니다"><span class="drag-grip" aria-hidden="true">⠿</span>${esc(parent.name)} · 상위 그룹</strong><div class="actions"><small>리더 ${esc(nameOf(d.people, parent.leaderId))} · ${parent.groupIds.reduce((n, id) => n + (p.groups.find((g) => g.id === id)?.members.length ?? 0), 0)}명</small>${button("edit-parent", "편집", "small", `data-id="${parent.id}"`)}</div></div><div class="group-grid">${parent.groupIds.map((id) => groupHTML(p.groups.find((g) => g.id === id))).join("")}</div></section>`;
+  const items = layoutIds(p)
+    .map((id) => {
+      const parent = p.parents.find((x) => x.id === id);
+      return parent
+        ? parentHTML(parent)
+        : groupHTML(p.groups.find((g) => g.id === id));
+    })
+    .join("");
   return (
     heading(
       "그룹 설정",
       "동일한 전체 인력으로 여러 구성을 만들고 비교합니다.",
     ) +
-    `<div class="tabs">${d.plans.map((x) => button("view-plan", esc(x.name) + (x.id === d.appliedPlanId ? " · 적용 중" : ""), x.id === p.id ? "active" : "", `data-id="${x.id}"`)).join("")}${button("plans", "안 관리")}${button("compare", "구성안 비교", "", d.plans.length < 2 ? 'disabled title="새 안이나 복사본을 만들어 주세요"' : "")}${button("apply-plan", p.id === d.appliedPlanId ? "현재 적용 안" : "이 안 적용", "", p.id === d.appliedPlanId ? "disabled" : "")}</div><section class="card schedule"><span><strong>개발반장 ${esc(nameOf(d.people, d.chiefId))}</strong><small> · 모든 구성안 공통</small></span><div class="actions">${button("chief", "변경·해제")}${button("representatives", "현장대리인 관리")}</div></section><div class="toolbar"><strong>조회 ${esc(p.name)} · ${p.groups.length}개 그룹 · 배정 ${assigned.size}명 / 미배정 ${unassigned.length}명</strong><div class="actions">${button("add-group", "그룹 만들기")}${button("add-parent", "상위 그룹 설정", "", !p.groups.length ? 'disabled title="인력 그룹을 먼저 만들어 주세요"' : "")}</div></div><div class="group-layout"><div class="group-area ${!p.groups.length ? "empty" : ""}" data-drop-ungrouped="true">${!p.groups.length ? `<h3>첫 그룹을 만들어 주세요.</h3><p>구성원을 선택한 뒤 리더를 지정할 수 있습니다.<br>다른 배치를 비교하려면 안을 복사하거나 새 안을 만드세요.</p>${button("add-group", "그룹 만들기", "primary")}` : ""}${p.parents.map((parent) => `<section class="parent" draggable="true" data-drag-parent="${parent.id}" data-drop-parent="${parent.id}"><div class="parent-title"><strong>${esc(parent.name)} · 상위 그룹</strong><div class="actions"><small>리더 ${esc(nameOf(d.people, parent.leaderId))} · ${parent.groupIds.reduce((n, id) => n + (p.groups.find((g) => g.id === id)?.members.length ?? 0), 0)}명</small>${button("edit-parent", "편집", "small", `data-id="${parent.id}"`)}</div></div><div class="group-grid">${parent.groupIds.map((id) => groupHTML(p.groups.find((g) => g.id === id))).join("")}</div></section>`).join("")}<div class="group-grid">${p.groups
-      .filter((g) => !grouped.has(g.id))
-      .map(groupHTML)
-      .join(
-        "",
-      )}</div></div><section class="card" data-drop-unassigned="true"><h3>미배정 · ${unassigned.length}명</h3><div class="unassigned-members">${unassigned.map((p) => memberHTML(p)).join("")}</div>${unassigned.length ? "" : '<p class="muted">모든 대상 인력이 배정되어 있습니다.</p>'}</section></div><p class="muted">인력·그룹·상위 그룹을 드래그해 이동합니다. 인력 한 명은 안마다 한 그룹에 소속됩니다. 리더는 편집 팝업에서 지정합니다.</p>`
+    `<div class="tabs">${d.plans.map((x) => button("view-plan", esc(x.name) + (x.id === d.appliedPlanId ? " · 적용 중" : ""), x.id === p.id ? "active" : "", `data-id="${x.id}"`)).join("")}${button("plans", "안 관리")}${button("compare", "구성안 비교", "", d.plans.length < 2 ? 'disabled title="새 안이나 복사본을 만들어 주세요"' : "")}${button("apply-plan", p.id === d.appliedPlanId ? "현재 적용 안" : "이 안 적용", "", p.id === d.appliedPlanId ? "disabled" : "")}</div><section class="card schedule"><span><strong>개발반장 ${esc(nameOf(d.people, d.chiefId))}</strong><small> · 모든 구성안 공통</small></span><div class="actions">${button("chief", "변경·해제")}${button("representatives", "현장대리인 관리")}</div></section><div class="toolbar"><strong>조회 ${esc(p.name)} · ${p.groups.length}개 그룹 · 배정 ${assigned.size}명 / 미배정 ${unassigned.length}명</strong><div class="actions">${button("add-group", "그룹 만들기")}${button("add-parent", "상위 그룹 설정", "", !p.groups.length ? 'disabled title="인력 그룹을 먼저 만들어 주세요"' : "")}</div></div><p class="drag-help" id="drag-feedback" role="status">그룹 제목의 ⠿를 드래그하세요. 카드 가운데에 놓으면 묶고, 가장자리에 놓으면 순서를 바꿉니다.</p><div class="group-layout"><div class="group-area ${!p.groups.length ? "empty" : ""}" data-drop-ungrouped="true">${!p.groups.length ? `<h3>첫 그룹을 만들어 주세요.</h3><p>구성원을 선택한 뒤 리더를 지정할 수 있습니다.<br>다른 배치를 비교하려면 안을 복사하거나 새 안을 만드세요.</p>${button("add-group", "그룹 만들기", "primary")}` : ""}<div class="root-layout">${items}</div>${p.parents.length ? '<div class="ungroup-drop" data-drop-ungrouped="true">그룹을 여기로 끌어 상위 그룹 밖으로 꺼내기</div>' : ""}</div><section class="card" data-drop-unassigned="true"><h3>미배정 · ${unassigned.length}명</h3><div class="unassigned-members">${unassigned.map((p) => memberHTML(p)).join("")}</div>${unassigned.length ? "" : '<p class="muted">모든 대상 인력이 배정되어 있습니다.</p>'}</section></div><p class="muted">인력·그룹·상위 그룹을 드래그해 이동합니다. 인력 한 명은 안마다 한 그룹에 소속됩니다. 리더는 편집 팝업에서 지정합니다.</p>`
   );
 }
 function settingsView() {
@@ -714,10 +721,14 @@ async function openHandle(handle, request = false, replace = false) {
         render();
         return;
       }
-      const result = await startup(seed(), { choose: (title, people) => choose(title, people, seed()) });
+      const result = await startup(seed(), {
+        choose: (title, people) => choose(title, people, seed()),
+      });
       data = await store.save(result.data);
     } else {
-      const result = await startup(data, { choose: (title, people) => choose(title, people, data) });
+      const result = await startup(data, {
+        choose: (title, people) => choose(title, people, data),
+      });
       data = result.changed ? await store.save(result.data) : result.data;
     }
     state.data = data;
@@ -1198,16 +1209,23 @@ function groupDialog(id = null) {
     },
   });
 }
-function parentDialog(id = null) {
-  const planId = viewedPlan().id,
-    plan = viewedPlan(),
+function parentDialog(
+  id = null,
+  { planId = viewedPlan().id, groupIds = [], anchorId = null } = {},
+) {
+  const plan = state.data.plans.find((p) => p.id === planId),
     parent = plan.parents.find((p) => p.id === id);
   dialog({
     title: parent ? "상위 그룹 수정" : "상위 그룹 만들기",
-    body: `<div class="form-grid">${field("상위 그룹명", textInput("name", parent?.name ?? "", 'required maxlength="100"'))}${field("상위 리더", `<select name="leaderId"></select>`)}</div><h3 style="margin-top:24px">하위 인력 그룹</h3><div class="choice-list">${plan.groups.map((g) => `<label><input type="checkbox" name="group" value="${g.id}" ${parent?.groupIds.includes(g.id) ? "checked" : ""}><span>${esc(g.name)} · ${g.members.length}명</span></label>`).join("")}</div><p class="muted">다른 상위 그룹의 하위 그룹을 선택하면 이 안에서 이동합니다. 상위 그룹을 해제해도 하위 그룹과 인력은 유지됩니다.</p>`,
+    body: `<div class="form-grid">${field("상위 그룹명", textInput("name", parent?.name ?? "", 'required maxlength="100"'))}${field("상위 리더", `<select name="leaderId"></select>`)}</div><h3 style="margin-top:24px">하위 인력 그룹</h3><div class="choice-list">${plan.groups.map((g) => `<label><input type="checkbox" name="group" value="${g.id}" ${(parent?.groupIds ?? groupIds).includes(g.id) ? "checked" : ""}><span>${esc(g.name)} · ${g.members.length}명</span></label>`).join("")}</div><p class="muted">다른 상위 그룹의 하위 그룹을 선택하면 이 안에서 이동합니다. 상위 그룹을 해제해도 하위 그룹과 인력은 유지됩니다.</p>`,
     left: parent ? button("remove-parent", "묶음 해제·삭제", "danger") : "",
     onApply: async (f) => {
-      const ids = new FormData(f).getAll("group"),
+      const checked = new FormData(f).getAll("group"),
+        previousOrder = parent?.groupIds ?? groupIds,
+        ids = [
+          ...previousOrder.filter((id) => checked.includes(id)),
+          ...checked.filter((id) => !previousOrder.includes(id)),
+        ],
         leader = f.elements.leaderId.value || null;
       if (!ids.length) throw Error("하위 그룹을 하나 이상 선택해 주세요.");
       const available = ids.flatMap(
@@ -1222,13 +1240,20 @@ function parentDialog(id = null) {
             f.elements.name.value,
             id,
           );
+        const order = layoutIds(p);
         for (const x of p.parents)
           x.groupIds = x.groupIds.filter((gid) => !ids.includes(gid));
         const current = p.parents.find((x) => x.id === id);
         if (current)
           Object.assign(current, { name, groupIds: ids, leaderId: leader });
-        else
-          p.parents.push({ id: uid(), name, groupIds: ids, leaderId: leader });
+        else {
+          const created = { id: uid(), name, groupIds: ids, leaderId: leader };
+          p.parents.push(created);
+          if (anchorId)
+            p.rootOrder = order.flatMap((item) =>
+              item === anchorId ? [created.id] : [item],
+            );
+        }
         cleanGroups(d);
       });
     },
@@ -1263,6 +1288,7 @@ function parentDialog(id = null) {
           await mutate((d) => {
             const p = d.plans.find((p) => p.id === planId);
             p.parents = p.parents.filter((x) => x.id !== id);
+            cleanGroups(d);
           });
           item.close(true);
         },
@@ -1539,6 +1565,163 @@ function bindDrag() {
   const root = $("main");
   if (!root) return;
   let pendingDrop = null;
+  const defaultHint = $("#drag-feedback")?.textContent;
+  const clearMarkers = () =>
+    root.querySelectorAll("[data-drop-intent]").forEach((el) => {
+      el.removeAttribute("data-drop-intent");
+      el.removeAttribute("data-drop-axis");
+    });
+  const describe = (e, drag) => {
+    if (!drag || drag.planId !== viewedPlan().id) return null;
+    const card = e.target.closest("[data-drop-group]"),
+      parent = e.target.closest("[data-drop-parent]"),
+      unassigned = e.target.closest("[data-drop-unassigned]"),
+      outside = e.target.closest("[data-drop-ungrouped]");
+    const side = (el, axis) => {
+      const r = el.getBoundingClientRect();
+      return (
+        axis === "horizontal"
+          ? e.clientX < r.x + r.width / 2
+          : e.clientY < r.y + r.height / 2
+      )
+        ? "before"
+        : "after";
+    };
+    if (drag.person) {
+      if (card)
+        return {
+          el: card,
+          kind: "person",
+          groupId: card.dataset.dropGroup,
+          beforePerson:
+            e.target.closest("[data-drop-person]")?.dataset.dropPerson,
+          label: "이 그룹에 인력 배정",
+          intent: "inside",
+        };
+      if (unassigned)
+        return {
+          el: unassigned,
+          kind: "person",
+          label: "미배정으로 이동",
+          intent: "inside",
+        };
+      return null;
+    }
+    if (drag.parent) {
+      const el = parent || card;
+      if (el) {
+        const id = parent?.dataset.dropParent || card.dataset.dropGroup;
+        if (id === drag.parent) return null;
+        const intent = side(el, "vertical");
+        return {
+          el,
+          kind: "parent",
+          anchorId: id,
+          after: intent === "after",
+          intent,
+          axis: "vertical",
+          label:
+            intent === "after" ? "이 항목 뒤로 이동" : "이 항목 앞으로 이동",
+        };
+      }
+      if (outside)
+        return {
+          el: outside,
+          kind: "parent",
+          intent: "inside",
+          label: "맨 뒤로 이동",
+        };
+      return null;
+    }
+    if (drag.group) {
+      if (card) {
+        if (card.dataset.dropGroup === drag.group) return null;
+        const r = card.getBoundingClientRect(),
+          horizontal = Math.min(48, r.width * 0.18),
+          vertical = Math.min(32, r.height * 0.18);
+        let intent = null,
+          axis = "horizontal";
+        if (e.clientX < r.x + horizontal) intent = "before";
+        else if (e.clientX > r.right - horizontal) intent = "after";
+        else if (e.clientY < r.y + vertical) {
+          intent = "before";
+          axis = "vertical";
+        } else if (e.clientY > r.bottom - vertical) {
+          intent = "after";
+          axis = "vertical";
+        }
+        const parentId = parent?.dataset.dropParent ?? null;
+        if (intent)
+          return {
+            el: card,
+            kind: "group",
+            parentId,
+            anchorId: card.dataset.dropGroup,
+            after: intent === "after",
+            intent,
+            axis,
+            label:
+              intent === "after" ? "이 그룹 뒤로 이동" : "이 그룹 앞으로 이동",
+          };
+        if (parentId)
+          return {
+            el: card,
+            kind: "group",
+            parentId,
+            anchorId: card.dataset.dropGroup,
+            after: true,
+            intent: "inside",
+            label:
+              viewedPlan().parents.find((p) => p.groupIds.includes(drag.group))
+                ?.id === parentId
+                ? "이 그룹 뒤로 이동"
+                : "이 상위 그룹에 넣기",
+          };
+        return {
+          el: card,
+          kind: "bundle",
+          anchorId: card.dataset.dropGroup,
+          intent: "inside",
+          label: "두 그룹을 상위 그룹으로 묶기",
+        };
+      }
+      if (parent) {
+        const r = parent.getBoundingClientRect();
+        if (e.clientY < r.y + 18 || e.clientY > r.bottom - 18) {
+          const intent = side(parent, "vertical");
+          return {
+            el: parent,
+            kind: "group",
+            anchorId: parent.dataset.dropParent,
+            parentId: null,
+            after: intent === "after",
+            intent,
+            axis: "vertical",
+            label:
+              intent === "after"
+                ? "상위 그룹 뒤에 독립 배치"
+                : "상위 그룹 앞에 독립 배치",
+          };
+        }
+        return {
+          el: parent,
+          kind: "group",
+          parentId: parent.dataset.dropParent,
+          intent: "inside",
+          label: "이 상위 그룹에 넣기",
+        };
+      }
+      if (outside)
+        return {
+          el: outside,
+          kind: "group",
+          parentId: null,
+          intent: "inside",
+          label: "상위 그룹 밖, 맨 뒤로 이동",
+        };
+    }
+    return null;
+  };
   root.querySelectorAll("[draggable=true]").forEach((el) =>
     el.addEventListener("dragstart", (e) => {
       e.stopPropagation();
@@ -1548,90 +1731,65 @@ function bindDrag() {
         group: el.dataset.dragGroup,
         parent: el.dataset.dragParent,
       };
+      el.classList.add("dragging");
+      root.classList.add("is-dragging");
       e.dataTransfer.setData("text/plain", "nova-move");
       e.dataTransfer.effectAllowed = "move";
     }),
   );
   root.addEventListener("dragover", (e) => {
-    if (!dragData) return;
-    const target = e.target.closest(
-      "[data-drop-group],[data-drop-unassigned],[data-drop-parent],[data-drop-ungrouped]",
-    );
+    const target = describe(e, dragData);
+    clearMarkers();
     if (target) {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
+      target.el.dataset.dropIntent = target.intent;
+      target.el.dataset.dropAxis = target.axis || "horizontal";
     }
+    const feedback = $("#drag-feedback");
+    if (feedback) feedback.textContent = target?.label || defaultHint;
+  });
+  root.addEventListener("dragleave", (e) => {
+    if (!root.contains(e.relatedTarget)) clearMarkers();
   });
   root.addEventListener("drop", (e) => {
-    if (!dragData) return;
+    const target = describe(e, dragData),
+      drag = dragData;
+    if (!target) return;
     e.preventDefault();
-    const drag = dragData;
-    dragData = null;
-    const target = e.target.closest(
-      "[data-drop-group],[data-drop-unassigned],[data-drop-parent],[data-drop-ungrouped]",
-    );
-    if (!target || drag.planId !== viewedPlan().id) return;
-    const beforePerson =
-      e.target.closest("[data-drop-person]")?.dataset.dropPerson;
     pendingDrop = async () => {
       try {
+        if (target.kind === "bundle") {
+          parentDialog(null, {
+            planId: drag.planId,
+            groupIds: [target.anchorId, drag.group],
+            anchorId: target.anchorId,
+          });
+          return;
+        }
         await mutate((d) => {
           const plan = d.plans.find((p) => p.id === drag.planId);
-          if (drag.person) {
+          if (!plan) throw Error("구성안이 없습니다.");
+          if (target.kind === "person") {
             const p = d.people.find((p) => p.id === drag.person);
             if (!p || status(p) === "종료") return;
-            const groupId = target.dataset.dropGroup,
-              was = plan.groups.find((g) => g.members.includes(p.id));
-            if (!groupId && !target.dataset.dropUnassigned) return;
-            const oldIndex = was?.members.indexOf(p.id);
+            const was = plan.groups.find((g) => g.members.includes(p.id)),
+              oldIndex = was?.members.indexOf(p.id);
             for (const g of plan.groups)
               g.members = g.members.filter((id) => id !== p.id);
-            const group = plan.groups.find((g) => g.id === groupId);
+            const group = plan.groups.find((g) => g.id === target.groupId);
             if (group) {
-              const before = beforePerson;
               let index =
-                before === p.id
+                target.beforePerson === p.id
                   ? oldIndex
-                  : before
-                    ? group.members.indexOf(before)
-                    : -1;
+                  : group.members.indexOf(target.beforePerson);
               if (index < 0) index = group.members.length;
               group.members.splice(index, 0, p.id);
             }
-          } else if (drag.group) {
-            const moving = plan.groups.find((g) => g.id === drag.group);
-            if (!moving) return;
-            const targetGroup = target.dataset.dropGroup;
-            if (targetGroup === moving.id) return;
-            let parentId = target.dataset.dropParent;
-            if (targetGroup)
-              parentId = plan.parents.find((x) =>
-                x.groupIds.includes(targetGroup),
-              )?.id;
-            for (const x of plan.parents)
-              x.groupIds = x.groupIds.filter((id) => id !== moving.id);
-            if (parentId) {
-              const parent = plan.parents.find((x) => x.id === parentId);
-              let at = parent.groupIds.indexOf(targetGroup);
-              if (at < 0) at = parent.groupIds.length;
-              parent.groupIds.splice(at, 0, moving.id);
-            } else {
-              plan.groups = plan.groups.filter((g) => g.id !== moving.id);
-              let at = plan.groups.findIndex((g) => g.id === targetGroup);
-              if (at < 0) at = plan.groups.length;
-              plan.groups.splice(at, 0, moving);
-            }
-          } else if (drag.parent) {
-            const targetParent = target.dataset.dropParent;
-            if (!targetParent || targetParent === drag.parent) return;
-            const moving = plan.parents.find((p) => p.id === drag.parent);
-            plan.parents = plan.parents.filter((p) => p.id !== moving.id);
-            plan.parents.splice(
-              plan.parents.findIndex((p) => p.id === targetParent),
-              0,
-              moving,
-            );
-          }
+          } else if (target.kind === "group")
+            moveGroup(plan, drag.group, target);
+          else if (target.kind === "parent")
+            moveParent(plan, drag.parent, target.anchorId, target.after);
           cleanGroups(d);
         });
       } catch (e) {
@@ -1641,6 +1799,13 @@ function bindDrag() {
   });
   root.addEventListener("dragend", () => {
     dragData = null;
+    clearMarkers();
+    root.classList.remove("is-dragging");
+    root
+      .querySelectorAll(".dragging")
+      .forEach((el) => el.classList.remove("dragging"));
+    const feedback = $("#drag-feedback");
+    if (feedback) feedback.textContent = defaultHint;
     const run = pendingDrop;
     pendingDrop = null;
     if (run) setTimeout(run, 0);

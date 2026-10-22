@@ -272,6 +272,56 @@ export function appoint(d, id, t = todayKST()) {
   d.representativeIds.push(id);
   p.representativeReleased = false;
 }
+// Older files omit rootOrder; retain their original parents-first layout until edited.
+export function layoutIds(plan) {
+  const grouped = new Set(plan.parents.flatMap((p) => p.groupIds));
+  const valid = [
+    ...plan.parents.map((p) => p.id),
+    ...plan.groups.filter((g) => !grouped.has(g.id)).map((g) => g.id),
+  ];
+  return [...new Set([...(plan.rootOrder ?? []), ...valid])].filter((id) =>
+    valid.includes(id),
+  );
+}
+export function moveGroup(
+  plan,
+  groupId,
+  { parentId = null, anchorId = null, after = false } = {},
+) {
+  if (!plan.groups.some((g) => g.id === groupId))
+    throw Error("이동할 그룹이 없습니다.");
+  if (anchorId === groupId) return;
+  const parent = parentId ? plan.parents.find((p) => p.id === parentId) : null;
+  if (parentId && !parent) throw Error("대상 상위 그룹이 없습니다.");
+  if (
+    anchorId &&
+    (parent
+      ? !parent.groupIds.includes(anchorId)
+      : !layoutIds(plan).includes(anchorId))
+  )
+    throw Error("이동 위치가 올바르지 않습니다.");
+  const order = layoutIds(plan).filter((id) => id !== groupId);
+  for (const p of plan.parents)
+    p.groupIds = p.groupIds.filter((id) => id !== groupId);
+  const list = parent ? parent.groupIds : order;
+  const at = anchorId ? list.indexOf(anchorId) + (after ? 1 : 0) : list.length;
+  list.splice(at, 0, groupId);
+  plan.rootOrder = order;
+}
+export function moveParent(plan, parentId, anchorId = null, after = false) {
+  if (!plan.parents.some((p) => p.id === parentId))
+    throw Error("이동할 상위 그룹이 없습니다.");
+  if (parentId === anchorId) return;
+  const order = layoutIds(plan).filter((id) => id !== parentId);
+  if (anchorId && !order.includes(anchorId))
+    throw Error("이동 위치가 올바르지 않습니다.");
+  order.splice(
+    anchorId ? order.indexOf(anchorId) + (after ? 1 : 0) : order.length,
+    0,
+    parentId,
+  );
+  plan.rootOrder = order;
+}
 export function cleanGroups(d, t = todayKST()) {
   const ids = new Set(
     d.people.filter((p) => status(p, t) !== "종료").map((p) => p.id),
@@ -292,6 +342,7 @@ export function cleanGroups(d, t = todayKST()) {
       if (!members.includes(parent.leaderId)) parent.leaderId = null;
     }
     plan.parents = plan.parents.filter((p) => p.groupIds.length);
+    if (plan.rootOrder) plan.rootOrder = layoutIds(plan);
   }
   if (!d.people.some((p) => p.id === d.chiefId && status(p, t) === "투입 중"))
     d.chiefId = null;
@@ -462,14 +513,19 @@ export async function startup(original, options = {}) {
   return { data: d, changed: JSON.stringify(d) !== JSON.stringify(original) };
 }
 export function copyPlan(plan, name) {
-  const map = new Map(plan.groups.map((g) => [g.id, uid()]));
+  const map = new Map(
+    [...plan.groups, ...plan.parents].map((g) => [g.id, uid()]),
+  );
   return {
     id: uid(),
     name,
+    ...(plan.rootOrder
+      ? { rootOrder: layoutIds(plan).map((id) => map.get(id)) }
+      : {}),
     groups: plan.groups.map((g) => ({ ...clone(g), id: map.get(g.id) })),
     parents: plan.parents.map((p) => ({
       ...clone(p),
-      id: uid(),
+      id: map.get(p.id),
       groupIds: p.groupIds.map((id) => map.get(id)),
     })),
   };
@@ -580,6 +636,14 @@ export function validateData(d) {
       !Array.isArray(plan.parents) ||
       !unique(plan.groups) ||
       !unique(plan.parents)
+    )
+      fail();
+    if (!unique([...plan.groups, ...plan.parents])) fail();
+    if (
+      plan.rootOrder !== undefined &&
+      (!Array.isArray(plan.rootOrder) ||
+        new Set(plan.rootOrder).size !== plan.rootOrder.length ||
+        plan.rootOrder.some((id) => !layoutIds(plan).includes(id)))
     )
       fail();
     const members = new Set(),
