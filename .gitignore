@@ -1,0 +1,6 @@
+node_modules/
+test-results/
+*.log
+nova-data.json
+dist/release/
+dist/*.zip
