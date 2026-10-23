@@ -8,7 +8,7 @@ Figma 원본: https://www.figma.com/design/Xu4zuGA40HcaKJ0xIbRSh0
 - 05_groups_example.png: 그룹 구성 예시 (초기 데이터로 등록하지 않음)
 - 12_settings.png: 기본 설정의 역할 관리
 
-기능과 데이터 규칙은 SPEC.md v0.24를 우선합니다.
+기능과 데이터 규칙은 현재 [docs/SPEC.md](../docs/SPEC.md)를 우선합니다.
 PNG는 화면 배치·색상·간격·스타일 참고용입니다.
 Figma 프레임 경계 아래 내용은 이미지에 포함되지 않을 수 있습니다.
 연간 그래프, 상세·수정 팝업, 구성안 비교 등 이 묶음에 없는 화면은 SPEC 기준으로 구현합니다.
