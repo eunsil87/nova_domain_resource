@@ -98,6 +98,33 @@ try {
     1920,
   );
   ok("1920×1080 layout and topmost Phase table");
+  assert.equal(await page.locator('.phase-bar').count(),6);
+  assert.equal(await page.locator('.phase-bar.current').count(),2);
+  assert.match(await page.locator('.phase-now').innerText(),/Phase 1 설계 · Phase 1 개발/);
+  const timelineBefore=await page.locator('.phase-timeline').innerHTML(), diskBefore=await read();
+  await page.locator('#year').selectOption('2027');
+  assert.equal(await page.locator('.phase-timeline').innerHTML(),timelineBefore);
+  await page.locator('#year').selectOption('2026');
+  assert.deepEqual(await read(),diskBefore);
+  ok('whole Phase timeline shows overlapping current periods independently of M/M year');
+  await page.clock.setFixedTime(new Date('2026-10-22T15:00:00Z'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  assert.match(await page.locator('.phase-now').innerText(),/오늘 2026-10-23/);
+  assert.deepEqual(await read(),diskBefore);
+  assert.equal(await page.locator('header .saved').innerText(),'저장 완료');
+  await page.clock.setFixedTime(new Date('2026-06-30T03:00:00Z'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  assert.equal(await page.locator('.timeline-today').getAttribute('data-range'),'before');
+  assert.match(await page.locator('.phase-now').innerText(),/표시 일정 시작 전/);
+  await page.clock.setFixedTime(new Date('2028-08-01T03:00:00Z'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  assert.equal(await page.locator('.timeline-today').getAttribute('data-range'),'after');
+  assert.equal(await page.locator('.phase-bar.current').count(),0);
+  await page.clock.setFixedTime(new Date('2026-10-22T03:00:00Z'));
+  await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+  assert.deepEqual(await read(),diskBefore);
+  ok('KST date refresh and out-of-schedule marker update only derived displays');
+
   await nav("인력 관리");
   assert.equal(await page.locator("[data-person]").count(), 19);
   for (const [index, p] of stored.people.entries()) {

@@ -29,6 +29,7 @@ import {
   layoutIds,
   moveGroup,
   moveParent,
+  phaseTimeline,
 } from "./core.js";
 import { FolderStore, rememberHandle, recalledHandle } from "./storage.js";
 const $ = (s) => document.querySelector(s),
@@ -311,6 +312,28 @@ function render(keepScroll = false) {
 function heading(title, desc, actions = "") {
   return `<div class="heading"><div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div><div class="actions">${actions}</div></div>`;
 }
+function phaseView(d) {
+  const today = todayKST(),
+    model = phaseTimeline(d.phases, today);
+  const statusLabel = {
+    current: "기간 중",
+    upcoming: "예정",
+    past: "기간 종료",
+  };
+  const current = model.current.length
+    ? model.current.join(" · ")
+    : model.range === "before"
+      ? "표시 일정 시작 전"
+      : model.range === "after"
+        ? "표시 일정 종료 후"
+        : model.range === "empty"
+          ? "등록된 일정 없음"
+          : "현재 해당하는 설계·개발 기간 없음";
+  const timeline = model.rows.length
+    ? `<div class="phase-legend"><span><i class="dot"></i>설계</span><span><i class="dot phase-dev-dot"></i>개발</span><small>강조 테두리: 오늘이 포함된 기간 · 실제 작업 진척률과는 다릅니다.</small></div><div class="phase-timeline" aria-label="전체 Phase 일정과 오늘 위치"><div class="timeline-labels"><div class="timeline-corner">Phase</div>${model.rows.map((row) => `<div class="timeline-row-label"><strong>${esc(row.name)}</strong>${row.periods.some((p) => p.state === "current") ? "<small>현재 기간</small>" : ""}</div>`).join("")}</div><div class="timeline-plot">${model.ticks.map((tick, i) => `<div class="timeline-tick ${tick.left === 100 ? "last" : ""}" style="left:${tick.left}%"><span>${esc(tick.date.slice(0, 7).replace("-", "."))}</span></div>`).join("")}<div class="timeline-tracks">${model.rows.map((row) => `<div class="timeline-track">${row.periods.map((p) => `<div tabindex="0" role="img" class="phase-bar ${p.kind === "설계" ? "design" : "development"} ${p.state}" style="left:${p.left}%;width:${p.width}%" title="${esc(row.name)} ${p.kind}: ${p.start} ~ ${p.end} (${statusLabel[p.state]})" aria-label="${esc(row.name)} ${p.kind} ${p.start}부터 ${p.end}까지, ${statusLabel[p.state]}">${p.kind}<span>${p.state === "current" ? " · 기간 중" : ""}</span></div>`).join("")}</div>`).join("")}</div><div class="timeline-today ${model.position < 12 ? "near-start" : model.position > 88 ? "near-end" : ""}" data-range="${model.range}" style="left:${model.position}%" aria-label="오늘 ${today}"><span>오늘${model.range === "before" ? " · 시작 전" : model.range === "after" ? " · 종료 후" : ""}</span></div></div></div>`
+    : '<p class="muted">등록된 Phase 일정이 없습니다.</p>';
+  return `<section class="card phase"><div class="phase-head"><h2>${esc(d.projectName)} Phase별 일정</h2><small>참고 일정</small></div><div class="phase-now"><strong>오늘 ${today}</strong><span>일정상 현재: ${esc(current)}</span></div>${timeline}<table class="phase-dates"><thead><tr><th>Phase</th><th>설계 기간</th><th>개발 기간</th></tr></thead><tbody>${d.phases.map((p) => `<tr><td><strong>${esc(p[0])}</strong></td><td>${esc(p[1])} ~ ${esc(p[2])}</td><td>${esc(p[3])} ~ ${esc(p[4])}</td></tr>`).join("")}</tbody></table><p class="muted phase-note">Phase 3 이후 빅뱅 오픈 · 오픈일 미정 · 원본 일정표와 대조 전 참고 일정입니다. 현재 위치는 조회 연도와 별개로 한국 날짜를 기준으로 표시합니다.</p></section>`;
+}
 function annualView() {
   const d = state.data,
     t = totals(d, state.year),
@@ -341,7 +364,7 @@ function annualView() {
         button("next-year", "›", "", 'aria-label="다음 연도"') +
         button("target", "목표 설정"),
     ) +
-    `<section class="card phase"><div class="phase-head"><h2>${esc(d.projectName)} Phase별 일정</h2><small>참고 일정</small></div><table><thead><tr><th>Phase</th><th>설계 기간</th><th>개발 기간</th></tr></thead><tbody>${d.phases.map((p) => `<tr><td><strong>${esc(p[0])}</strong></td><td>${esc(p[1])} ~ ${esc(p[2])}</td><td>${esc(p[3])} ~ ${esc(p[4])}</td></tr>`).join("")}</tbody></table><p class="muted">Phase 3 이후 빅뱅 오픈 · 오픈일 미정 · 원본 일정표와 대조 전 참고 일정입니다.</p></section>` +
+    phaseView(d) +
     `<div class="stats">${stat("연간 목표 M/M", target == null ? "미설정" : mm(target), "연도별 전체 목표")}${stat("연말 예상 실적", mm(t.confirmed), "정직원 + BP + AGS · TBD 제외", "blue")}${stat("목표 대비 차이", delta == null ? "미설정" : (delta > 0 ? "+" : "") + mm(delta), delta == null ? "목표 미설정" : `${mm(Math.abs(delta))} M/M ${delta < 0 ? "부족" : "초과"}${target > 0 ? " · 달성률 " + ((t.confirmed / target) * 100).toFixed(3) + "%" : ""}`)}${stat("TBD 계획 M/M", mm(t.tbd), "미확정 계획은 실적과 별도 집계")}</div>` +
     `<section class="card schedule"><div class="actions"><select id="range" aria-label="다가오는 일정 기간">${[14, 30].map((n) => option(n, "향후 " + n + "일", n === state.range)).join("")}</select><span>투입 확정 <strong>${events.filter((x) => x.kind === "투입").length}명</strong> · TBD <strong>${events.filter((x) => x.kind === "TBD").length}명</strong> · 철수 <strong>${events.filter((x) => x.kind === "철수").length}명</strong></span><small>${todayKST()} ~ ${addDays(todayKST(), state.range)} · 한국 날짜</small></div>${button("schedule", "일정 보기")}</section>` +
     `<section class="card"><h2>직원 타입별 연말 예상 실적</h2><div class="type-stats">${Object.entries(
@@ -1817,6 +1840,22 @@ window.addEventListener("beforeunload", (e) => {
     e.returnValue = "";
   }
 });
+// Refresh derived date displays across midnight without running persistent startup cleanup.
+let renderedDate = todayKST();
+function refreshDateDisplay() {
+  const date = todayKST();
+  if (
+    !state.ready ||
+    document.hidden ||
+    dialogs.length ||
+    date === renderedDate
+  )
+    return;
+  renderedDate = date;
+  render(true);
+}
+document.addEventListener("visibilitychange", refreshDateDisplay);
+setInterval(refreshDateDisplay, 60000);
 async function boot() {
   renderConnection();
   try {

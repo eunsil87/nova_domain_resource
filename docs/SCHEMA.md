@@ -1,6 +1,6 @@
 # 데이터와 저장 정책
 
-앱 버전은 `package.json`의 `0.1.1`, 기준 기능 명세는 v0.24, JSON 스키마 버전은 `schemaVersion: 1`입니다. 이 셋은 서로 다릅니다.
+앱 버전은 `package.json`의 `0.1.2`, 기준 기능 명세는 v0.24, JSON 스키마 버전은 `schemaVersion: 1`입니다. 이 셋은 서로 다릅니다.
 
 ## 파일
 

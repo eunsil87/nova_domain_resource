@@ -705,13 +705,17 @@ export function validateData(d) {
     new Set(reps.map(repKey)).size !== reps.length
   )
     fail();
-  for (const p of d.phases)
+  for (const p of d.phases) {
     if (
       !Array.isArray(p) ||
       p.length !== 5 ||
-      p.some((x) => typeof x !== "string")
+      p.some((x) => typeof x !== "string") ||
+      !p[0]
     )
       fail();
+    p.slice(1).forEach(dateValue);
+    if (p[2] < p[1] || p[4] < p[3]) fail();
+  }
   return d;
 }
 export function sortedPeople(
@@ -804,4 +808,70 @@ export function sortedPeople(
     }
     return d.people.indexOf(a) - d.people.indexOf(b);
   });
+}
+
+// Calendar position, not actual task completion. Includes both ends of each period.
+export function phaseTimeline(phases, today = todayKST()) {
+  dateValue(today);
+  if (!phases.length)
+    return { rows: [], ticks: [], current: [], position: null, range: "empty" };
+  const allDates = phases.flatMap((p) => p.slice(1));
+  allDates.forEach(dateValue);
+  const start = allDates.reduce((a, b) => (a < b ? a : b)),
+    end = allDates.reduce((a, b) => (a > b ? a : b));
+  const first = dateValue(start),
+    duration = dateValue(end) - first + 86400000;
+  const at = (date) => ((dateValue(date) - first) / duration) * 100;
+  const rows = phases.map(([name, ds, de, cs, ce]) => ({
+    name,
+    periods: [
+      ["설계", ds, de],
+      ["개발", cs, ce],
+    ].map(([kind, start, end]) => {
+      if (end < start)
+        throw Error("Phase 종료일은 시작일보다 빠를 수 없습니다.");
+      return {
+        kind,
+        start,
+        end,
+        left: at(start),
+        width: ((days(start, end) * 86400000) / duration) * 100,
+        state: today < start ? "upcoming" : today > end ? "past" : "current",
+      };
+    }),
+  }));
+  const ticks = [{ date: start, left: 0 }];
+  let year = Number(start.slice(0, 4)),
+    month = Number(start.slice(5, 7));
+  while (year <= Number(end.slice(0, 4))) {
+    if ([1, 4, 7, 10].includes(month)) {
+      const date = `${year}-${String(month).padStart(2, "0")}-01`;
+      if (date > start && date <= end && at(date) < 95)
+        ticks.push({ date, left: at(date) });
+    }
+    month++;
+    if (month === 13) {
+      year++;
+      month = 1;
+    }
+    if (`${year}-${String(month).padStart(2, "0")}-01` > end) break;
+  }
+  // Keep both ends readable for very short custom schedules as well.
+  const readable = ticks.filter(
+    (t, i) => i === 0 || (t.left >= 8 && t.left <= 92),
+  );
+  if (days(start, end) > 1) readable.push({ date: end, left: 100 });
+  return {
+    rows,
+    ticks: readable,
+    start,
+    end,
+    position: Math.max(0, Math.min(100, at(today))),
+    range: today < start ? "before" : today > end ? "after" : "during",
+    current: rows.flatMap((row) =>
+      row.periods
+        .filter((p) => p.state === "current")
+        .map((p) => `${row.name} ${p.kind}`),
+    ),
+  };
 }
