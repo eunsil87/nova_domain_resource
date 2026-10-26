@@ -19,6 +19,9 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm test
+      - run: npm run catalog:generate
+      - name: Verify Catalog baseline matches the supplied reference
+        run: git diff --exit-code -- src/catalog-baseline.js
       - run: npm run build
       - name: Verify committed offline HTML matches source
         run: git diff --exit-code -- dist/NOVA.html

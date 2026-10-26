@@ -419,7 +419,7 @@ test("default order places Focal first, header sort takes precedence, null last 
 test("schema and structure errors fail closed without mutation", () => {
   const d = seed();
   for (const mutate of [
-    (d) => (d.schemaVersion = 2),
+    (d) => (d.schemaVersion = 99),
     (d) => (d.saveVersion = -1),
     (d) => (d.plans = []),
     (d) => d.people.push(clone(d.people[0])),

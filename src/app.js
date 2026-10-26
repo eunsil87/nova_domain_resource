@@ -32,6 +32,19 @@ import {
   phaseTimeline,
 } from "./core.js";
 import { FolderStore, rememberHandle, recalledHandle } from "./storage.js";
+import { CATALOG_BASELINE } from "./catalog-baseline.js";
+import {
+  CATALOG_LEVELS,
+  baselineCatalog,
+  emptyCatalog,
+  catalogLevel,
+  catalogPath,
+  catalogRows,
+  catalogCounts,
+  upsertCatalogNode,
+  deleteCatalogNode,
+  setCatalogAssignees,
+} from "./catalog.js";
 const $ = (s) => document.querySelector(s),
   esc = (x) =>
     String(x ?? "").replace(
@@ -68,11 +81,16 @@ const state = {
   busy: false,
   remembered: false,
   scroll: 0,
+  catalogLevel: "l4",
+  catalogFilters: {},
+  catalogQuery: "",
+  catalogRequirement: "all",
 };
 const labels = {
   annual: "연간 현황",
   people: "인력 관리",
   groups: "그룹 설정",
+  catalog: "Catalog 관리",
   settings: "기본 설정",
 };
 const dialogs = [];
@@ -305,13 +323,256 @@ function render(keepScroll = false) {
       )
       .join(
         "",
-      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main>${{ annual: annualView, people: peopleView, groups: groupsView, settings: settingsView }[state.page]()}</main>`;
+      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main>${{ annual: annualView, people: peopleView, groups: groupsView, catalog: catalogView, settings: settingsView }[state.page]()}</main>`;
   window.scrollTo(0, scroll);
   bindMain();
 }
 function heading(title, desc, actions = "") {
   return `<div class="heading"><div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div><div class="actions">${actions}</div></div>`;
 }
+function catalogLabel(node) {
+  return `${node.code} · ${node.koreanName || node.name}`;
+}
+function selectedCatalogFilters(key = state.catalogLevel) {
+  const index = CATALOG_LEVELS.findIndex((l) => l.key === key);
+  return Object.fromEntries(
+    CATALOG_LEVELS.slice(0, index).map((l) => [
+      l.key,
+      state.catalogFilters[l.key] || null,
+    ]),
+  );
+}
+function catalogView() {
+  const c = state.data.catalog;
+  const baseCounts = catalogCounts(c ?? CATALOG_BASELINE);
+  const intro = heading(
+    "Catalog 관리",
+    "도메인부터 L4까지 기능 구조와 Sub Component 담당자를 관리합니다.",
+    c
+      ? button(
+          "catalog-add",
+          `${catalogLevel(state.catalogLevel).label} 추가`,
+          "primary",
+        )
+      : "",
+  );
+  if (!c)
+    return (
+      intro +
+      `<section class="card catalog-welcome"><h2>서비스오더 Catalog 시작하기</h2><p>전달받은 v3.0 기준 자료를 불러오거나 빈 Catalog에서 시작할 수 있습니다.<br>현재 인력·그룹·투입 계획은 그대로 유지됩니다.</p><div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<div><strong>${baseCounts[l.key]}</strong><small>${l.label}</small></div>`).join("")}</div><p class="muted">L4 필수 ${baseCounts.required}건 · 옵션 ${baseCounts.optional}건 · 불러온 후 모든 계층을 편집할 수 있습니다.</p><div class="actions">${button("catalog-initialize", "서비스오더 v3.0으로 시작", "primary", 'data-mode="baseline"')}${button("catalog-initialize", "빈 Catalog로 시작", "", 'data-mode="empty"')}</div><p class="muted">적용 후 상단 저장을 눌러야 파일에 반영됩니다. 기존 파일을 열거나 이 화면에 진입하는 것만으로 데이터를 추가하지 않습니다.</p></section>`
+    );
+  const key = state.catalogLevel,
+    level = catalogLevel(key),
+    count = catalogCounts(c),
+    index = CATALOG_LEVELS.findIndex((l) => l.key === key),
+    ancestors = CATALOG_LEVELS.slice(0, index),
+    filters = selectedCatalogFilters(),
+    list = catalogRows(
+      c,
+      key,
+      filters,
+      state.catalogQuery,
+      state.catalogRequirement,
+    );
+  const filtersHTML = ancestors
+    .map((l) => {
+      const options = catalogRows(c, l.key, selectedCatalogFilters(l.key));
+      return field(
+        l.label,
+        `<select data-catalog-filter="${l.key}" aria-label="Catalog ${l.label} 필터">${option("", "전체")}${options.map((n) => option(n.id, catalogLabel(n), state.catalogFilters[l.key] === n.id)).join("")}</select>`,
+      );
+    })
+    .join("");
+  return (
+    intro +
+    `<div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<button type="button" data-action="catalog-level" data-level="${l.key}" class="${l.key === key ? "selected" : ""}"><strong>${count[l.key]}</strong><small>${l.label}</small></button>`).join("")}</div><div class="tabs catalog-tabs" aria-label="Catalog 계층">${CATALOG_LEVELS.map((l) => button("catalog-level", l.label, l.key === key ? "active" : "", `data-level="${l.key}"`)).join("")}</div><section class="card catalog-filter-panel"><div class="catalog-filters">${filtersHTML}${field("ID·명칭·설명 검색", textInput("catalogQuery", state.catalogQuery, 'id="catalog-query" type="search" placeholder="검색어 입력" maxlength="200"'))}${key === "l4" ? field("필수/옵션", `<select id="catalog-requirement" aria-label="Catalog 필수여부">${option("all", "전체", state.catalogRequirement === "all")}${option("required", "필수", state.catalogRequirement === "required")}${option("optional", "옵션", state.catalogRequirement === "optional")}</select>`) : ""}</div><div class="catalog-filter-foot"><small>${c.sourceVersion ? "기준 자료 v" + esc(c.sourceVersion) + " · 편집 가능한 현재 Catalog" : "직접 등록한 Catalog"} · L4 필수 ${count.required} / 옵션 ${count.optional}</small>${button("catalog-clear-filters", "조회 조건 초기화", "small")}</div></section><div class="toolbar"><strong>${level.label} ${list.length}건 <small>전체 ${count[key]}건</small></strong><small>${key === "subcomponents" ? "담당자는 여러 명을 연결할 수 있습니다." : "행을 선택하면 " + (key === "l4" ? "상세를 수정합니다." : "하위 항목을 봅니다.")}</small></div><div class="table-wrap"><table class="catalog-table"><thead><tr><th>ID</th><th>명칭 / 한글 명칭</th>${index ? "<th>상위 경로</th>" : ""}${key === "l4" ? "<th>기능 설명</th><th>필수여부</th>" : key === "subcomponents" ? "<th>담당자</th>" : "<th>하위 항목</th>"}<th>관리</th></tr></thead><tbody>${list
+      .map((n) => {
+        const path = catalogPath(c, key, n.id).slice(0, -1),
+          next = CATALOG_LEVELS[index + 1],
+          childCount = next
+            ? c[next.key].filter((x) => x.parentId === n.id).length
+            : 0;
+        const owners =
+          key === "subcomponents"
+            ? n.assigneeIds
+                .map((id) => state.data.people.find((p) => p.id === id))
+                .filter(Boolean)
+            : [];
+        return `<tr data-catalog-row="${n.id}" data-level="${key}" tabindex="0" aria-label="${esc(n.code)} ${esc(n.name)}"><td class="catalog-code">${esc(n.code)}</td><td><strong>${esc(n.name)}</strong>${n.koreanName ? `<small>${esc(n.koreanName)}</small>` : ""}</td>${index ? `<td class="catalog-path">${path.map((p) => esc(p.code)).join(" › ")}</td>` : ""}${key === "l4" ? `<td class="catalog-description"><span title="${esc(n.description)}">${esc(n.description)}</span></td><td><span class="badge ${n.required ? "current" : "tbd"}">${n.required ? "필수" : "옵션"}</span></td>` : key === "subcomponents" ? `<td class="catalog-owners">${owners.length ? owners.map((p) => `<span class="badge ${status(p) === "종료" ? "ended-owner" : ""}">${esc(p.name)}${status(p) === "종료" ? " · 종료" : p.kind === "tbd" ? " · TBD" : ""}</span>`).join(" ") : "<small>미지정</small>"}</td>` : `<td>${next ? next.label + " " + childCount + "건" : ""}</td>`}<td><div class="actions">${button("catalog-edit", "수정", "small", `data-level="${key}" data-id="${n.id}"`)}${key === "subcomponents" ? button("catalog-assignees", "담당자", "small", `data-id="${n.id}"`) : ""}${next ? button("catalog-drill", "하위 보기", "small ghost", `data-level="${key}" data-id="${n.id}"`) : ""}</div></td></tr>`;
+      })
+      .join(
+        "",
+      )}</tbody></table>${list.length ? "" : `<div class="catalog-empty"><h3>${count[key] ? "조회 조건에 맞는 항목이 없습니다." : "등록된 " + level.label + " 항목이 없습니다."}</h3><p class="muted">${count[key] ? "조회 조건을 바꾸거나 초기화해 주세요." : "상위 항목을 먼저 등록한 뒤 추가해 주세요."}</p>${button("catalog-add", level.label + " 추가", "primary")}</div>`}</div><p class="muted">ID를 변경해도 하위 항목과 담당자 연결은 유지됩니다. 하위 항목 또는 담당자가 연결되어 있으면 정리 후 삭제할 수 있습니다.</p>`
+  );
+}
+function catalogNavigate(key, id) {
+  const c = state.data.catalog,
+    index = CATALOG_LEVELS.findIndex((l) => l.key === key);
+  if (!CATALOG_LEVELS[index + 1]) {
+    catalogNodeDialog(key, id);
+    return;
+  }
+  const path = catalogPath(c, key, id);
+  state.catalogFilters = Object.fromEntries(path.map((n) => [n.level, n.id]));
+  state.catalogLevel = CATALOG_LEVELS[index + 1].key;
+  state.catalogQuery = "";
+  state.catalogRequirement = "all";
+  render();
+}
+function bindCatalog() {
+  if (state.page !== "catalog") return;
+  document.querySelectorAll("[data-catalog-row]").forEach((row) => {
+    row.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      catalogNavigate(row.dataset.level, row.dataset.catalogRow);
+    };
+    row.onkeydown = (e) => {
+      if (e.target !== row) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        catalogNavigate(row.dataset.level, row.dataset.catalogRow);
+      }
+    };
+  });
+  document.querySelectorAll("[data-catalog-filter]").forEach(
+    (input) =>
+      (input.onchange = () => {
+        const key = input.dataset.catalogFilter,
+          index = CATALOG_LEVELS.findIndex((l) => l.key === key);
+        for (const l of CATALOG_LEVELS.slice(index))
+          delete state.catalogFilters[l.key];
+        if (input.value) {
+          const path = catalogPath(state.data.catalog, key, input.value);
+          for (const n of path) state.catalogFilters[n.level] = n.id;
+        }
+        render(true);
+      }),
+  );
+  const query = $("#catalog-query");
+  if (query) {
+    let composing = false;
+    const updateSearch = () => {
+      if (!query.isConnected) return;
+      const value = query.value,
+        position = query.selectionStart;
+      state.catalogQuery = value;
+      render(true);
+      const next = $("#catalog-query");
+      next.focus();
+      next.setSelectionRange(position, position);
+    };
+    query.addEventListener("compositionstart", () => {
+      composing = true;
+    });
+    query.addEventListener("input", (e) => {
+      if (!composing && !e.isComposing) updateSearch();
+    });
+    query.addEventListener("compositionend", () => {
+      composing = false;
+      updateSearch();
+    });
+  }
+  const requirement = $("#catalog-requirement");
+  if (requirement)
+    requirement.onchange = () => {
+      state.catalogRequirement = requirement.value;
+      render(true);
+    };
+}
+async function initializeCatalog(mode) {
+  if (
+    !(await confirmDialog(
+      "Catalog 시작하기",
+      mode === "baseline"
+        ? "서비스오더 v3.0의 도메인 3개, L2 5개, Sub Component 12개, L3 20개, L4 106개를 현재 작업에 추가할까요?"
+        : "빈 Catalog를 만들어 직접 항목을 등록할까요?",
+    ))
+  )
+    return;
+  await mutate((d) => {
+    if (d.catalog)
+      throw Error("이미 Catalog가 존재합니다. 기존 내용을 덮어쓰지 않습니다.");
+    d.catalog = mode === "baseline" ? baselineCatalog() : emptyCatalog();
+    d.schemaVersion = SCHEMA;
+  });
+}
+function catalogNodeDialog(key = state.catalogLevel, id = null) {
+  const c = state.data.catalog;
+  if (!c) return;
+  const level = catalogLevel(key),
+    old = id ? c[key].find((n) => n.id === id) : null;
+  const parents = level.parent
+    ? c[level.parent].map((n) => ({
+        ...n,
+        name: catalogPath(c, level.parent, n.id).map(catalogLabel).join(" › "),
+      }))
+    : [];
+  const parentId = old?.parentId ?? state.catalogFilters[level.parent] ?? null;
+  const body = `<div class="form-grid">${level.parent ? field("상위 " + catalogLevel(level.parent).label + ' <b class="required">*</b>', select("parentId", parents, parentId), true) : ""}${field('ID <b class="required">*</b>', textInput("code", old?.code ?? "", 'required maxlength="120" autocomplete="off"'))}${field('명칭 <b class="required">*</b>', textInput("name", old?.name ?? "", 'required maxlength="200"'))}${field("한글 명칭", textInput("koreanName", old?.koreanName ?? "", 'maxlength="200"'), key !== "l4")}${key === "l4" ? field("필수여부", `<select name="required">${option("required", "필수", old?.required !== false)}${option("optional", "옵션", old?.required === false)}</select>`) + field("L4 기능 설명", `<textarea name="description" rows="6" maxlength="20000">${esc(old?.description)}</textarea>`, true) : ""}</div>${level.parent ? '<p class="muted">상위 항목을 변경해도 하위 항목의 ID는 자동으로 바뀌지 않습니다.</p>' : ""}${old && key === "subcomponents" ? '<p class="notice">담당자 연결은 목록의 담당자 버튼에서 관리합니다. 이름이나 ID를 수정해도 기존 연결은 유지됩니다.</p>' : ""}`;
+  dialog({
+    title: `${level.label} ${old ? "수정" : "추가"}`,
+    body,
+    wide: key === "l4",
+    left: old ? button("catalog-remove", "삭제", "danger") : "",
+    onApply: async (f) => {
+      const values = Object.fromEntries(new FormData(f));
+      const input = { ...values, required: values.required === "required" };
+      await mutate((d) => {
+        upsertCatalogNode(d.catalog, key, input, id);
+      });
+    },
+    setup: (f, item) => {
+      f.querySelector("[data-action=catalog-remove]")?.addEventListener(
+        "click",
+        async () => {
+          try {
+            const copy = clone(state.data.catalog);
+            deleteCatalogNode(copy, key, id);
+            if (
+              !(await confirmDialog(
+                `${level.label} 삭제`,
+                `${old.code} · ${old.koreanName || old.name} 항목을 삭제할까요?`,
+                "삭제",
+              ))
+            )
+              return;
+            await mutate((d) => deleteCatalogNode(d.catalog, key, id));
+            for (const l of CATALOG_LEVELS)
+              if (state.catalogFilters[l.key] === id)
+                delete state.catalogFilters[l.key];
+            item.close(true);
+            render(true);
+          } catch (e) {
+            const error = f.querySelector(".error");
+            error.textContent = e.message;
+            error.hidden = false;
+            error.scrollIntoView({ block: "nearest" });
+          }
+        },
+      );
+    },
+  });
+}
+function catalogAssigneesDialog(id) {
+  const c = state.data.catalog,
+    node = c?.subcomponents.find((n) => n.id === id);
+  if (!node) return;
+  const people = sortedPeople(
+    state.data,
+    state.data.people.filter(
+      (p) => status(p) !== "종료" || node.assigneeIds.includes(p.id),
+    ),
+  );
+  dialog({
+    title: "Sub Component 담당자 연결",
+    body: `<div class="notice"><strong>${esc(node.code)}</strong><br>${esc(node.koreanName || node.name)}</div><p>여러 담당자를 선택할 수 있습니다. 아무도 선택하지 않으면 연결을 해제합니다.</p><div class="choice-list catalog-assignee-list">${people.map((p) => `<label><input type="checkbox" name="assignee" value="${p.id}" ${node.assigneeIds.includes(p.id) ? "checked" : ""}><span><strong>${esc(p.name)}</strong><br><small>${status(p)} · ${esc(nameOf(state.data.companies, p.companyId))} · ${esc(nameOf(state.data.roles, p.roleId))}</small></span></label>`).join("")}</div><p class="muted">그룹 구성안과 독립된 공통 담당자 연결입니다. 연결된 인력이 종료되면 표시를 유지해 직접 재배정할 수 있고, 인력을 삭제하면 해당 연결만 함께 정리합니다.</p>`,
+    onApply: async (f) => {
+      const ids = new FormData(f).getAll("assignee");
+      await mutate((d) => setCatalogAssignees(d, id, ids, todayKST()));
+    },
+  });
+}
+
 function phaseView(d) {
   const today = todayKST(),
     model = phaseTimeline(d.phases, today);
@@ -504,6 +765,7 @@ function bindMain() {
       render(true);
     };
   bindDrag();
+  bindCatalog();
 }
 async function dispatch(b) {
   try {
@@ -517,6 +779,33 @@ async function dispatch(b) {
         break;
       case "connection":
         await connect(true);
+        break;
+      case "catalog-initialize":
+        await initializeCatalog(b.dataset.mode);
+        break;
+      case "catalog-level":
+        state.catalogLevel = b.dataset.level;
+        state.catalogQuery = "";
+        state.catalogRequirement = "all";
+        render(true);
+        break;
+      case "catalog-add":
+        catalogNodeDialog();
+        break;
+      case "catalog-edit":
+        catalogNodeDialog(b.dataset.level, b.dataset.id);
+        break;
+      case "catalog-drill":
+        catalogNavigate(b.dataset.level, b.dataset.id);
+        break;
+      case "catalog-assignees":
+        catalogAssigneesDialog(b.dataset.id);
+        break;
+      case "catalog-clear-filters":
+        state.catalogFilters = {};
+        state.catalogQuery = "";
+        state.catalogRequirement = "all";
+        render(true);
         break;
       case "add-person":
         personDialog();
@@ -979,6 +1268,11 @@ function personDialog(id = null, kind = "confirmed", convert = false) {
 async function deletePerson(id) {
   const p = state.data.people.find((x) => x.id === id);
   const warnings = [];
+  for (const sc of state.data.catalog?.subcomponents ?? [])
+    if (sc.assigneeIds.includes(id))
+      warnings.push(
+        `Catalog: ${sc.code} (${sc.koreanName || sc.name}) 담당자 연결 해제`,
+      );
   for (const plan of state.data.plans) {
     for (const g of [...plan.groups, ...plan.parents])
       if (g.leaderId === id)

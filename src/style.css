@@ -1140,3 +1140,151 @@ tbody tr:last-child td {
     gap: 5px;
   }
 }
+
+.catalog-counts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.catalog-counts > div,
+.catalog-counts > button {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: left;
+  min-height: 82px;
+}
+.catalog-counts strong {
+  display: block;
+  font-size: 26px;
+  margin-bottom: 4px;
+}
+.catalog-counts small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.catalog-counts button.selected {
+  background: #edf4ff;
+  border-color: #7fa8f2;
+  color: #1958b8;
+}
+.catalog-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+.catalog-filters select {
+  width: 100%;
+  text-overflow: ellipsis;
+}
+.catalog-filter-panel {
+  padding: 20px;
+}
+.catalog-filter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+}
+.catalog-table {
+  font-size: 12px;
+  min-width: 850px;
+}
+.catalog-table td {
+  vertical-align: top;
+  max-width: 340px;
+  padding: 14px 12px;
+}
+.catalog-table th {
+  padding: 14px 12px;
+}
+.catalog-table tbody tr[data-catalog-row] {
+  cursor: pointer;
+}
+.catalog-table tbody tr:hover {
+  background: #f4f7fd;
+}
+.catalog-table td strong {
+  display: block;
+  line-height: 1.5;
+}
+.catalog-table td small {
+  display: block;
+  margin-top: 5px;
+  line-height: 1.5;
+}
+.catalog-code {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  min-width: 150px;
+  max-width: 230px !important;
+}
+.catalog-path {
+  font-size: 11px;
+  color: #6b7e98;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.catalog-description {
+  min-width: 220px;
+}
+.catalog-description > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.catalog-table .actions {
+  gap: 7px;
+  flex-wrap: nowrap;
+}
+.catalog-table .small {
+  padding: 0 9px;
+  min-height: 32px;
+}
+.catalog-owners {
+  min-width: 110px;
+}
+.catalog-owners .badge {
+  margin-bottom: 5px;
+}
+.ended-owner {
+  background: #fff0ed;
+  color: #a4442e;
+}
+.catalog-welcome {
+  max-width: 1000px;
+  margin-top: 28px;
+}
+.catalog-welcome .catalog-counts > div {
+  background: #f5f8fc;
+}
+.catalog-welcome .actions {
+  margin: 24px 0;
+}
+.catalog-empty {
+  padding: 32px;
+  text-align: center;
+}
+.catalog-assignee-list {
+  max-height: 430px;
+  overflow-y: auto;
+}
+@media (max-width: 1000px) {
+  .catalog-counts {
+    gap: 6px;
+  }
+  .catalog-counts > button,
+  .catalog-counts > div {
+    padding: 12px 8px;
+  }
+  .catalog-counts strong {
+    font-size: 22px;
+  }
+}
