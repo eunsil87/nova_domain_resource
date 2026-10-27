@@ -4345,7 +4345,7 @@ function render(keepScroll = false) {
       )
       .join(
         "",
-      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main class="${state.page === "catalog" ? "catalog-page" : ""}">${{ annual: annualView, people: peopleView, groups: groupsView, catalog: catalogView, settings: settingsView }[state.page]()}</main>`;
+      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}${portableMode() ? " · JSON 다운로드 방식" : ""}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main class="${state.page === "catalog" ? "catalog-page" : ""}">${{ annual: annualView, people: peopleView, groups: groupsView, catalog: catalogView, settings: settingsView }[state.page]()}</main>`;
   window.scrollTo(0, scroll);
   bindMain();
 }
@@ -5058,12 +5058,107 @@ async function dispatch(b) {
     toast(e.message);
   }
 }
+const portableMode = () => !window.showDirectoryPicker;
+function pickJSON() {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json,application/json";
+    input.onchange = async () => {
+      try {
+        resolve(input.files[0] ? await input.files[0].text() : null);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
+  });
+}
+async function portableStart(create = false) {
+  if (!(await pendingChanges())) return;
+  try {
+    let data;
+    if (create) {
+      if (
+        !(await confirmDialog(
+          "새 워크스페이스 만들기",
+          "확정 인력 14명과 TBD 5명으로 새 데이터를 만들까요? 기존 JSON 파일은 변경하지 않습니다.",
+          "만들기",
+        ))
+      )
+        return;
+      data = seed();
+    } else {
+      const raw = await pickJSON();
+      if (raw === null) return;
+      data = validateData(JSON.parse(raw));
+    }
+    const result = await startup(data, {
+      choose: (title, people) => choose(title, people, data),
+    });
+    Object.assign(state, {
+      data: result.data,
+      store: null,
+      handle: null,
+      ready: true,
+      dirty: create || result.changed,
+      error: "",
+      viewPlan: result.data.appliedPlanId,
+    });
+    render();
+    if (state.dirty) toast("새 데이터 또는 시작 시 정리 결과를 저장해 주세요.");
+  } catch (e) {
+    if (e.name !== "AbortError") {
+      if (state.ready) toast("불러오지 못했습니다. " + e.message);
+      else {
+        state.error = "데이터를 읽을 수 없습니다. " + e.message;
+        renderConnection();
+      }
+    }
+  }
+}
+async function portableSave() {
+  const out = clone(state.data);
+  out.saveVersion += 1;
+  validateData(out);
+  const text = JSON.stringify(out, null, 2) + "\n";
+  const url = URL.createObjectURL(
+    new Blob([text], { type: "application/json" }),
+  );
+  return new Promise((resolve) => {
+    dialog({
+      title: "JSON 파일 저장",
+      body: `<p>① 아래 버튼으로 수정본을 다운로드하세요. 기존 데이터 파일을 바꾸려면 다운로드 후 직접 교체하세요.</p><p><a class="primary" href="${url}" download="nova-data.json">nova-data.json 다운로드</a></p><p>② 다운로드가 끝나면 아래에서 방금 받은 파일을 선택하세요. 내용이 일치해야 저장 완료로 처리합니다.</p><input type="file" name="saved-json" accept=".json,application/json" aria-label="다운로드한 JSON 확인"><p class="note">다운로드한 파일이 다음 실행의 데이터 원본입니다. 다른 PC로 옮길 때 HTML과 최신 JSON을 함께 옮기세요.</p>`,
+      apply: "저장 파일 확인",
+      guard: false,
+      onApply: async (form) => {
+        const file = form.querySelector('[name="saved-json"]').files[0];
+        if (!file) throw Error("다운로드한 JSON 파일을 선택해 주세요.");
+        if ((await file.text()) !== text)
+          throw Error(
+            "현재 수정본과 다른 파일입니다. 방금 다운로드한 파일을 선택해 주세요.",
+          );
+        URL.revokeObjectURL(url);
+        resolve(out);
+      },
+      onClose: () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      },
+    });
+  });
+}
 async function save() {
   if (state.busy) return false;
   state.busy = true;
   render(true);
   try {
-    state.data = await state.store.save(state.data);
+    const saved = portableMode()
+      ? await portableSave()
+      : await state.store.save(state.data);
+    if (!saved) return false;
+    state.data = saved;
     state.dirty = false;
     toast("저장했습니다.");
     return true;
@@ -5109,6 +5204,13 @@ async function save() {
   }
 }
 function renderConnection() {
+  if (portableMode()) {
+    $("#app").innerHTML =
+      `<section class="card connection"><div class="mark">NOVA FOCAL</div><h1>인력 관리 워크스페이스</h1><p>Safari에서는 JSON 파일을 열고, 수정본을 다운로드해 저장합니다.<br>인터넷 연결 없이 사용할 수 있습니다.</p>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ""}<div class="actions">${button("open-json", "JSON 파일 열기", "primary")}${button("new-json", "새 워크스페이스")}</div><p class="note">매번 최신 JSON을 선택하세요. 시작 시 정리 결과도 다운로드 저장이 필요합니다.<br>폴더 자동 연결·기존 파일 자동 덮어쓰기·외부 변경 충돌 감지는 제공되지 않습니다. 한 데이터는 한 탭에서 사용하세요.</p></section>`;
+    $("[data-action=open-json]").onclick = () => portableStart();
+    $("[data-action=new-json]").onclick = () => portableStart(true);
+    return;
+  }
   $("#app").innerHTML =
     `<section class="card connection"><div class="mark">NOVA FOCAL</div><h1>${state.error ? "시작하지 못했습니다" : "인력 관리 워크스페이스"}</h1><p>앱 폴더를 연결하면 인력과 투입 계획을 관리할 수 있습니다.<br>변경 사항은 저장 버튼을 눌렀을 때 반영됩니다.</p>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ""}<div class="actions">${state.handle ? button("resume", state.busy ? "시작 처리 중…" : "재시도", "primary", state.busy ? "disabled" : "") : ""}${!state.handle || state.error?.includes("권한") ? button("pick", "앱 폴더 연결", state.handle ? "" : "primary", state.busy ? "disabled" : "") : ""}</div><div class="note">인터넷 연결 없이 실행됩니다. 처음 사용하는 폴더에서는 새 데이터를 만들기 전에 확인합니다.<br>한 데이터는 한 탭에서 사용해 주세요. 데이터 오류가 발생해도 원본을 초기화하지 않습니다.</div></section>`;
   $("#app")
@@ -6311,6 +6413,7 @@ document.addEventListener("visibilitychange", refreshDateDisplay);
 setInterval(refreshDateDisplay, 60000);
 async function boot() {
   renderConnection();
+  if (portableMode()) return;
   try {
     const handle = await recalledHandle();
     if (handle) {
