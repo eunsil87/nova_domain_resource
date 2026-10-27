@@ -7,3 +7,4 @@
 - Ship a self-contained offline `dist/NOVA.html`, rebuilt from source. Preserve compatibility with existing user JSON and the boundary between popup drafts, session edits, manual file saving, and startup cleanup.
 - Run checks appropriate to the behavior changed. Documentation-only edits need consistency and diff checks; do not claim new application/VDI verification. Cloud tests do not establish Windows VDI validation.
 - Keep user data (`nova-data.json`), dependencies, and test outputs out of Git. Never publish user data as a fixture without explicit authorization.
+- Batch proposed changes until the user asks to apply them. A request to update only the SPEC or a layout image authorizes documentation/design updates, not application implementation. Distinguish pending requirements from shipped behavior and leave unresolved policies explicit.

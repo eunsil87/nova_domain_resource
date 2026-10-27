@@ -90,3 +90,15 @@ GitHub 저장소는 `eunsil87/nova_domain_resource`, 기본 개발 기준 브랜
 5. 적용은 세션 변경이며 상단 **저장**으로 같은 JSON에 반영합니다. 처음 Catalog를 적용하면 새 스키마 2가 저장되므로 이후에는 Catalog를 지원하는 새 HTML을 사용합니다.
 
 기존 인력·그룹·M/M는 유지합니다. 기준 자료 원본은 `docs/catalog/`, 생성기는 `scripts/import-catalog.mjs`, 독립 로직은 `src/catalog.js`에 있습니다. 자료를 재생성하려면 `npm run catalog:generate`를 실행하고 변경된 기준 JS와 빌드 HTML을 함께 검증합니다. 업무 항목 변경은 보통 앱 화면에서 하며 Git의 기준 자료를 바꿀 필요가 없습니다.
+
+## 차기 Catalog 명세·시안 (SPEC 0.27, 아직 미구현)
+
+[현재 SPEC](docs/SPEC.md)의 11.3.5~11.3.8과 [Catalog 레이아웃 시안](design/catalog-layout-v0.27.png)에 다음 변경을 정리했습니다. 현재 배포 HTML과 앱 버전은 **0.2.0 그대로**이며 이 절의 기능이 구현되었다는 의미는 아닙니다.
+
+- L2 영문 명칭, Sub Component·L3·L4 한글 명칭을 주 표시명으로 사용
+- L4마다 단일 Phase 1/2/3 또는 미지정
+- SC·L3·L4 설계자 각각 한 명, L4 개발자 한 명; 모두 TBD 지정 가능
+- SC 설계자 A→B 변경 시 하위 L3/L4 중 현재 인력 ID가 A인 항목만 B로 변경
+- 인력별 할당 시각화는 추가 대상이나 집계 단위는 아직 미확정
+
+기존 복수 담당자 전환과 미지정/해제·상위 이동 경계는 SPEC 13.4의 확인 항목으로 남겼습니다. 수정사항은 모아 두고 사용자의 구현 요청 때 반영합니다.
