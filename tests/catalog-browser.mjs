@@ -117,7 +117,7 @@ try {
   );
   await save();
   let stored = await read();
-  assert.equal(stored.schemaVersion, 2);
+  assert.equal(stored.schemaVersion, 3);
   assert.equal(stored.catalog.l4.length, 106);
   assert.deepEqual(stored.people, old.people);
   assert.deepEqual(stored.plans, old.plans);
@@ -214,22 +214,25 @@ try {
   await cancel();
   ok("duplicate external IDs are rejected without mutating the branch");
   await level("subcomponents");
-  await row("CUSTOM-2").locator("[data-action=catalog-assignees]").click();
-  await modal().locator("[name=assignee][value=person-0]").check();
-  await modal().locator("[name=assignee][value=person-1]").check();
-  await modal().locator("[name=assignee][value=tbd-1]").check();
-  await apply();
-  assert.match(await row("CUSTOM-2").innerText(), /장은실/);
-  assert.match(await row("CUSTOM-2").innerText(), /유원기/);
-  assert.match(await row("CUSTOM-2").innerText(), /TBD#1/);
-  ok("Sub Component supports multiple common personnel and TBD assignments");
+  await row("CUSTOM-2")
+    .locator("[data-catalog-designer]")
+    .selectOption("person-0");
+  await apply("확인");
+  assert.equal(
+    await row("CUSTOM-2").locator("[data-catalog-designer]").inputValue(),
+    "person-0",
+  );
+  ok("Sub Component single designer propagates to its child records");
   await row("CUSTOM-2").locator("[data-action=catalog-edit]").click();
   await modal().locator("[name=code]").fill("RENAMED-SC");
   await modal().locator("[name=name]").fill("Renamed Sub Component");
   await modal().locator("[name=parentId]").selectOption("cat-l2-TMFC007");
   await apply();
   await row("RENAMED-SC").waitFor();
-  assert.match(await row("RENAMED-SC").innerText(), /장은실/);
+  assert.equal(
+    await row("RENAMED-SC").locator("[data-catalog-designer]").inputValue(),
+    "person-0",
+  );
   await save();
   stored = await read();
   assert.equal(
@@ -238,8 +241,8 @@ try {
   );
   assert.deepEqual(
     stored.catalog.subcomponents.find((n) => n.id === ids.subcomponents)
-      .assigneeIds,
-    ["person-0", "person-1", "tbd-1"],
+      .designerId,
+    "person-0",
   );
   ok("code/name/parent edits preserve descendant identity and assignee links");
   await row("RENAMED-SC").locator("[data-action=catalog-edit]").click();
@@ -261,9 +264,15 @@ try {
     await modal().locator("[name=description]").inputValue(),
     "직접 수정 가능한 기능 설명\n두 번째 줄",
   );
+  await modal().locator("[name=designerId]").selectOption("");
+  await apply();
+  await row("CUSTOM-4").locator("[data-action=catalog-edit]").click();
   await action("catalog-remove", modal());
   await apply("삭제");
   await level("l3");
+  await row("CUSTOM-3").locator("[data-action=catalog-edit]").click();
+  await modal().locator("[name=designerId]").selectOption("");
+  await apply();
   await row("CUSTOM-3").locator("[data-action=catalog-edit]").click();
   await action("catalog-remove", modal());
   await apply("삭제");
@@ -288,14 +297,16 @@ try {
       .innerText()
       .then((x) => x.includes("장은실"))),
   );
-  assert.match(await row("RENAMED-SC").innerText(), /유원기/);
+
   ok(
     "person deletion announces Catalog links and cleans only that person’s assignments",
   );
-  await row("RENAMED-SC").locator("[data-action=catalog-assignees]").click();
-  await modal().locator("[name=assignee][value=person-1]").uncheck();
-  await modal().locator("[name=assignee][value=tbd-1]").uncheck();
-  await apply();
+  await row("RENAMED-SC")
+    .locator("[data-catalog-designer]")
+    .selectOption("tbd-1");
+  await apply("확인");
+  await row("RENAMED-SC").locator("[data-catalog-designer]").selectOption("");
+  await apply("확인");
   await row("RENAMED-SC").locator("[data-action=catalog-edit]").click();
   await action("catalog-remove", modal());
   await apply("삭제");

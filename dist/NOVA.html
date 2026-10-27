@@ -1300,6 +1300,118 @@ tbody tr:last-child td {
   }
 }
 
+.catalog-context {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.catalog-context > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #eaf2ff;
+  border: 1px solid #d7e6ff;
+  border-radius: 7px;
+  padding: 10px 16px;
+  font-size: 12px;
+}
+.catalog-context > div > span {
+  color: #5e7597;
+}
+.catalog-context select {
+  min-width: 140px;
+  max-width: 210px;
+  min-height: 34px;
+  padding: 5px 10px;
+}
+.role-catalog {
+  min-width: 1040px;
+}
+.role-catalog select {
+  min-height: 34px;
+  max-width: 150px;
+  min-width: 100px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.role-catalog td {
+  vertical-align: middle;
+}
+.role-catalog .catalog-code {
+  min-width: 210px;
+  max-width: 260px !important;
+}
+.catalog-assignment small {
+  margin: 3px 0 0 6px !important;
+  font-size: 10px;
+}
+.catalog-assignment.is-tbd select {
+  background: #fff5dc;
+  color: #99610b;
+  border-color: #efd6a0;
+}
+
+.catalog-page {
+  padding-top: 28px;
+}
+.catalog-page .heading {
+  margin-bottom: 20px;
+}
+.catalog-page .catalog-counts {
+  margin: 16px 0;
+}
+.catalog-page .catalog-counts > button,
+.catalog-page .catalog-counts > div {
+  min-height: 64px;
+  padding: 12px 16px;
+}
+.catalog-page .catalog-counts strong {
+  font-size: 24px;
+  margin-bottom: 2px;
+}
+.catalog-page .catalog-tabs {
+  margin: 14px 0;
+}
+.catalog-page .catalog-filter-panel {
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.catalog-page .catalog-filters {
+  gap: 12px;
+}
+.catalog-page .l4-filters {
+  grid-template-columns: 0.6fr 1.6fr 1.15fr 1.15fr 0.6fr 0.9fr 0.6fr;
+}
+.catalog-page .catalog-filter-foot {
+  margin-top: 10px;
+}
+.catalog-page .catalog-context {
+  margin: 12px 0;
+  gap: 7px;
+}
+.catalog-page .catalog-context > div {
+  padding: 7px 14px;
+}
+.catalog-page .toolbar {
+  margin: 14px 0;
+}
+.catalog-page .role-catalog td {
+  padding: 9px 12px;
+}
+.catalog-page .role-catalog th {
+  padding: 11px 12px;
+}
+.catalog-page .catalog-filters select {
+  font-size: 12px;
+  min-width: 0;
+}
+@media (max-width: 1350px) {
+  .catalog-page .l4-filters {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+}
+
     </style>
   </head>
   <body>
@@ -2613,6 +2725,7 @@ function catalogRows(
   filters = {},
   query = "",
   requirement = "all",
+  phase = "all",
 ) {
   catalogLevel(key);
   const q = query.trim().toLocaleLowerCase("ko");
@@ -2630,6 +2743,11 @@ function catalogRows(
               .toLocaleLowerCase("ko")
               .includes(q),
         )) &&
+      (key !== "l4" ||
+        phase === "all" ||
+        (phase === "unassigned"
+          ? node.phase == null
+          : node.phase === Number(phase))) &&
       (key !== "l4" ||
         requirement === "all" ||
         node.required === (requirement === "required"))
@@ -2650,9 +2768,17 @@ function upsertCatalogNode(catalog, key, input, id = null) {
     old = id ? catalog[key].find((x) => x.id === id) : null;
   if (id && !old) throw Error("수정할 항목이 없습니다.");
   const code = String(input.code ?? "").trim(),
-    name = String(input.name ?? "").trim(),
+    name =
+      String(input.name ?? "").trim() ||
+      (catalog.version === 2 ? String(input.koreanName ?? " ").trim() : ""),
     koreanName = String(input.koreanName ?? "").trim() || null,
     parentId = level.parent ? input.parentId || null : null;
+  if (
+    catalog.version === 2 &&
+    ["subcomponents", "l3", "l4"].includes(key) &&
+    !koreanName
+  )
+    throw Error("한글 명칭을 입력해 주세요.");
   if (!code || !name) throw Error("ID와 명칭을 입력해 주세요.");
   if (code.length > 120 || name.length > 200 || (koreanName?.length ?? 0) > 200)
     throw Error("ID는 120자, 명칭은 200자 이내로 입력해 주세요.");
@@ -2668,7 +2794,21 @@ function upsertCatalogNode(catalog, key, input, id = null) {
     koreanName,
     parentId,
   };
-  if (key === "subcomponents") node.assigneeIds = old?.assigneeIds ?? [];
+  if (catalog.version === 1 && key === "subcomponents")
+    node.assigneeIds = old?.assigneeIds ?? [];
+  if (catalog.version === 2 && ["subcomponents", "l3", "l4"].includes(key)) {
+    node.designerId = old
+      ? old.designerId
+      : key === "subcomponents"
+        ? null
+        : key === "l3"
+          ? catalog.subcomponents.find((sc) => sc.id === parentId).designerId
+          : catalogSubcomponent(catalog, "l3", parentId).designerId;
+    if (key === "l4") {
+      node.developerId = old?.developerId ?? null;
+      node.phase = old?.phase ?? null;
+    }
+  }
   if (key === "l4") {
     node.description = String(input.description ?? "").trim() || null;
     if (typeof input.required !== "boolean")
@@ -2693,11 +2833,17 @@ function deleteCatalogNode(catalog, key, id) {
     throw Error(
       `하위 ${child.label} ${count}건을 먼저 이동하거나 삭제해 주세요.`,
     );
-  if (key === "subcomponents" && node.assigneeIds.length)
+  if (
+    (key === "subcomponents" && node.assigneeIds?.length) ||
+    node.designerId ||
+    node.developerId
+  )
     throw Error("담당자 연결을 먼저 해제해 주세요.");
   catalog[key] = catalog[key].filter((x) => x.id !== id);
 }
 function setCatalogAssignees(data, subcomponentId, ids, today) {
+  if (data.catalog?.version !== 1)
+    throw Error("복수 담당자 편집은 이전 형식에서만 지원합니다.");
   const node = data.catalog?.subcomponents.find((x) => x.id === subcomponentId);
   if (!node) throw Error("담당자를 연결할 Sub Component가 없습니다.");
   if (!Array.isArray(ids) || new Set(ids).size !== ids.length)
@@ -2717,8 +2863,18 @@ function setCatalogAssignees(data, subcomponentId, ids, today) {
 function cleanCatalogAssignments(data) {
   if (!data.catalog) return;
   const ids = new Set(data.people.map((p) => p.id));
-  for (const node of data.catalog.subcomponents)
-    node.assigneeIds = node.assigneeIds.filter((id) => ids.has(id));
+  for (const level of CATALOG_LEVELS)
+    for (const node of data.catalog[level.key]) {
+      if (node.assigneeIds)
+        node.assigneeIds = node.assigneeIds.filter((id) => ids.has(id));
+      if (node.legacyAssigneeIds)
+        node.legacyAssigneeIds = node.legacyAssigneeIds.filter((id) =>
+          ids.has(id),
+        );
+      if (node.designerId && !ids.has(node.designerId)) node.designerId = null;
+      if (node.developerId && !ids.has(node.developerId))
+        node.developerId = null;
+    }
 }
 function validateCatalog(catalog, people) {
   if (catalog === undefined) return;
@@ -2729,7 +2885,7 @@ function validateCatalog(catalog, people) {
   };
   if (
     !catalog ||
-    catalog.version !== 1 ||
+    ![1, 2].includes(catalog.version) ||
     !(
       catalog.sourceVersion === null ||
       typeof catalog.sourceVersion === "string"
@@ -2765,12 +2921,36 @@ function validateCatalog(catalog, people) {
       )
         fail();
       if (
+        catalog.version === 1 &&
         level.key === "subcomponents" &&
         (!Array.isArray(node.assigneeIds) ||
           new Set(node.assigneeIds).size !== node.assigneeIds.length ||
           node.assigneeIds.some((id) => !peopleIds.has(id)))
       )
         fail();
+      if (catalog.version === 2) {
+        if (
+          ["subcomponents", "l3", "l4"].includes(level.key) &&
+          node.designerId !== null &&
+          !peopleIds.has(node.designerId)
+        )
+          fail();
+        if (
+          level.key === "l4" &&
+          ((node.developerId !== null && !peopleIds.has(node.developerId)) ||
+            ![null, 1, 2, 3].includes(node.phase))
+        )
+          fail();
+        if (
+          node.legacyAssigneeIds !== undefined &&
+          (!Array.isArray(node.legacyAssigneeIds) ||
+            new Set(node.legacyAssigneeIds).size !==
+              node.legacyAssigneeIds.length ||
+            node.legacyAssigneeIds.some((id) => !peopleIds.has(id)))
+        )
+          fail();
+        if (node.assigneeIds !== undefined) fail();
+      }
       if (
         level.key === "l4" &&
         (typeof node.required !== "boolean" ||
@@ -2781,7 +2961,110 @@ function validateCatalog(catalog, people) {
   }
 }
 
-const SCHEMA = 2;
+function catalogDisplayName(key, node) {
+  return ["subcomponents", "l3", "l4"].includes(key)
+    ? node.koreanName || "한글 명칭 미등록"
+    : node.name;
+}
+function upgradeCatalog(catalog, choices = {}) {
+  if (catalog.version === 2) return structuredClone(catalog);
+  if (catalog.version !== 1) throw Error("지원하지 않는 Catalog 버전입니다.");
+  const next = structuredClone(catalog);
+  next.version = 2;
+  for (const sc of next.subcomponents) {
+    const ids = sc.assigneeIds;
+    let chosen;
+    if (Object.hasOwn(choices, sc.id)) {
+      chosen = choices[sc.id];
+      if (chosen !== null && !ids.includes(chosen))
+        throw Error("기존 담당자 중 설계자를 선택해 주세요.");
+    } else if (ids.length > 1)
+      throw Error(`${sc.code} 설계자를 선택해 주세요.`);
+    else chosen = ids[0] ?? null;
+    sc.designerId = chosen;
+    sc.legacyAssigneeIds = [...ids];
+    delete sc.assigneeIds;
+  }
+  for (const n of next.l3)
+    n.designerId = next.subcomponents.find(
+      (sc) => sc.id === n.parentId,
+    ).designerId;
+  for (const n of next.l4) {
+    const l3 = next.l3.find((x) => x.id === n.parentId);
+    n.designerId = next.subcomponents.find(
+      (sc) => sc.id === l3.parentId,
+    ).designerId;
+    n.developerId = null;
+    n.phase = null;
+  }
+  return next;
+}
+function catalogSubcomponent(catalog, key, id) {
+  return (
+    catalogPath(catalog, key, id).find((n) => n.level === "subcomponents") ??
+    null
+  );
+}
+function setCatalogDesigner(data, key, id, personId, today) {
+  if (
+    data.catalog?.version !== 2 ||
+    !["subcomponents", "l3", "l4"].includes(key)
+  )
+    throw Error("단일 담당자 전환 후 설계자를 지정해 주세요.");
+  const n = data.catalog[key].find((x) => x.id === id);
+  if (!n) throw Error("항목이 없습니다.");
+  checkCatalogPerson(data, personId, n.designerId, today);
+  const previous = n.designerId;
+  n.designerId = personId;
+  if (key === "subcomponents") {
+    const children = data.catalog.l3.filter((x) => x.parentId === id),
+      ids = new Set(children.map((x) => x.id));
+    for (const child of [
+      ...children,
+      ...data.catalog.l4.filter((x) => ids.has(x.parentId)),
+    ])
+      if (child.designerId === previous) child.designerId = personId;
+  }
+}
+function checkCatalogPerson(data, id, oldId, today) {
+  if (id === null) return;
+  const p = data.people.find((p) => p.id === id);
+  if (!p) throw Error("선택한 인력이 없습니다.");
+  if (p.kind === "confirmed" && p.end < today && oldId !== id)
+    throw Error("종료 인력을 새 담당자로 지정할 수 없습니다.");
+}
+function setCatalogDeveloper(data, id, personId, today) {
+  if (data.catalog?.version !== 2)
+    throw Error("단일 담당자 전환 후 지정해 주세요.");
+  const n = data.catalog.l4.find((x) => x.id === id);
+  if (!n) throw Error("L4 항목이 없습니다.");
+  checkCatalogPerson(data, personId, n.developerId, today);
+  n.developerId = personId;
+}
+function setCatalogPhase(catalog, id, phase) {
+  const n = catalog.l4.find((x) => x.id === id);
+  if (catalog.version !== 2 || !n) throw Error("L4 항목이 없습니다.");
+  if (![null, 1, 2, 3].includes(phase))
+    throw Error("Phase는 1~3 중 하나 또는 미지정이어야 합니다.");
+  n.phase = phase;
+}
+function catalogPersonLinks(data, id) {
+  if (!data.catalog) return [];
+  const links = [];
+  for (const level of CATALOG_LEVELS)
+    for (const n of data.catalog[level.key]) {
+      if (
+        n.assigneeIds?.includes(id) ||
+        n.designerId === id ||
+        n.developerId === id ||
+        n.legacyAssigneeIds?.includes(id)
+      )
+        links.push(n);
+    }
+  return links;
+}
+
+const SCHEMA = 3;
 const FOREVER = "9999-12-31";
 const clone = (x) => structuredClone(x);
 const uid = () => globalThis.crypto.randomUUID();
@@ -3315,12 +3598,14 @@ function copyPlan(plan, name) {
   };
 }
 function validateData(d) {
-  if (!d || ![1, SCHEMA].includes(d.schemaVersion))
+  if (!d || ![1, 2, SCHEMA].includes(d.schemaVersion))
     throw Error(
       "지원하지 않는 데이터 스키마입니다. 원본은 변경하지 않았습니다.",
     );
   if (d.schemaVersion === 1 && d.catalog !== undefined)
     throw Error("Catalog 데이터는 스키마 2가 필요합니다. 원본을 유지합니다.");
+  if (d.catalog?.version === 2 && d.schemaVersion !== SCHEMA)
+    throw Error("설계·개발 담당자 데이터는 새 스키마 3이 필요합니다.");
   const fail = () => {
     throw Error(
       "데이터 구조 또는 참조가 손상되었습니다. 원본은 변경하지 않았습니다.",
@@ -3821,6 +4106,7 @@ const state = {
   catalogFilters: {},
   catalogQuery: "",
   catalogRequirement: "all",
+  catalogPhase: "all",
 };
 const labels = {
   annual: "연간 현황",
@@ -4059,15 +4345,16 @@ function render(keepScroll = false) {
       )
       .join(
         "",
-      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main>${{ annual: annualView, people: peopleView, groups: groupsView, catalog: catalogView, settings: settingsView }[state.page]()}</main>`;
+      )}</nav><footer><span>${esc(d.partName)}</span><small>Focal · 개인 워크스페이스</small></footer></aside><header><strong>${esc(d.partName)}</strong><div class="actions"><span class="saved ${state.dirty ? "unsaved" : ""}" role="status">${state.dirty ? "저장하지 않은 변경 사항" : "저장 완료"}</span>${button("save", state.busy ? "저장 중…" : "저장", "primary", state.busy ? "disabled" : "")}</div></header><main class="${state.page === "catalog" ? "catalog-page" : ""}">${{ annual: annualView, people: peopleView, groups: groupsView, catalog: catalogView, settings: settingsView }[state.page]()}</main>`;
   window.scrollTo(0, scroll);
   bindMain();
 }
 function heading(title, desc, actions = "") {
   return `<div class="heading"><div><h1>${esc(title)}</h1><p>${esc(desc)}</p></div><div class="actions">${actions}</div></div>`;
 }
-function catalogLabel(node) {
-  return `${node.code} · ${node.koreanName || node.name}`;
+function catalogLabel(node, key = node.level) {
+  const name = catalogDisplayName(key, node);
+  return node.code === name ? node.code : `${node.code} · ${name}`;
 }
 function selectedCatalogFilters(key = state.catalogLevel) {
   const index = CATALOG_LEVELS.findIndex((l) => l.key === key);
@@ -4078,67 +4365,105 @@ function selectedCatalogFilters(key = state.catalogLevel) {
     ]),
   );
 }
+function catalogOwnerSelect(value, attributes = "") {
+  const people = sortedPeople(
+    state.data,
+    state.data.people.filter((p) => status(p) !== "종료" || p.id === value),
+  );
+  return `<select ${attributes} aria-label="${attributes.includes("developer") ? "개발자" : "설계자"}">${option("", "미지정", !value)}${people.map((p) => option(p.id, p.name + (p.kind === "tbd" ? " · TBD" : status(p) === "종료" ? " · 종료" : ""), p.id === value)).join("")}</select>`;
+}
+function catalogPhaseSelect(value, attributes = "") {
+  return `<select ${attributes} aria-label="L4 Phase">${option("", "미지정", value == null)}${[1, 2, 3].map((n) => option(n, "Phase " + n, n === value)).join("")}</select>`;
+}
+function catalogOwnerCell(key, n) {
+  const sc = catalogSubcomponent(state.data.catalog, key, n.id),
+    person = state.data.people.find((p) => p.id === n.designerId);
+  return `<div class="catalog-assignment ${person?.kind === "tbd" ? "is-tbd" : ""}">${catalogOwnerSelect(n.designerId, `data-catalog-designer="${n.id}" data-level="${key}"`)}${key !== "subcomponents" ? `<small>${n.designerId === sc?.designerId ? "SC와 동일" : "개별 지정"}</small>` : ""}</div>`;
+}
+function catalogContext(c) {
+  const sc = c.subcomponents.find(
+      (n) => n.id === state.catalogFilters.subcomponents,
+    ),
+    l3 = c.l3.find((n) => n.id === state.catalogFilters.l3);
+  if (!sc) return "";
+  return `<section class="catalog-context"><div><strong>Sub Component 설계자</strong><span>${esc(catalogDisplayName("subcomponents", sc))}</span>${catalogOwnerSelect(sc.designerId, `id="catalog-context-sc"`)}${button("catalog-context-designer", "변경", "small", `data-id="${sc.id}"`)}<small>현재 기존 설계자와 같은 하위 L3·L4만 함께 변경됩니다.</small></div>${l3 ? `<div><strong>L3 ${esc(catalogDisplayName("l3", l3))}</strong>${catalogOwnerSelect(l3.designerId, `data-catalog-designer="${l3.id}" data-level="l3"`)}</div>` : ""}</section>`;
+}
 function catalogView() {
-  const c = state.data.catalog;
-  const baseCounts = catalogCounts(c ?? CATALOG_BASELINE);
+  const c = state.data.catalog,
+    counts = catalogCounts(c ?? CATALOG_BASELINE);
   const intro = heading(
     "Catalog 관리",
-    "도메인부터 L4까지 기능 구조와 Sub Component 담당자를 관리합니다.",
-    c
-      ? button(
-          "catalog-add",
-          `${catalogLevel(state.catalogLevel).label} 추가`,
-          "primary",
-        )
-      : "",
+    "기능 구조와 설계·개발 담당자를 한눈에 관리합니다.",
+    button(
+      "catalog-chart-pending",
+      "할당 현황",
+      "",
+      'disabled title="집계 기준을 확정한 뒤 제공합니다"',
+    ) +
+      (c?.version === 2
+        ? button(
+            "catalog-add",
+            catalogLevel(state.catalogLevel).label + " 추가",
+            "primary",
+          )
+        : ""),
   );
   if (!c)
     return (
       intro +
-      `<section class="card catalog-welcome"><h2>서비스오더 Catalog 시작하기</h2><p>전달받은 v3.0 기준 자료를 불러오거나 빈 Catalog에서 시작할 수 있습니다.<br>현재 인력·그룹·투입 계획은 그대로 유지됩니다.</p><div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<div><strong>${baseCounts[l.key]}</strong><small>${l.label}</small></div>`).join("")}</div><p class="muted">L4 필수 ${baseCounts.required}건 · 옵션 ${baseCounts.optional}건 · 불러온 후 모든 계층을 편집할 수 있습니다.</p><div class="actions">${button("catalog-initialize", "서비스오더 v3.0으로 시작", "primary", 'data-mode="baseline"')}${button("catalog-initialize", "빈 Catalog로 시작", "", 'data-mode="empty"')}</div><p class="muted">적용 후 상단 저장을 눌러야 파일에 반영됩니다. 기존 파일을 열거나 이 화면에 진입하는 것만으로 데이터를 추가하지 않습니다.</p></section>`
+      `<section class="card catalog-welcome"><h2>서비스오더 Catalog 시작하기</h2><p>기준 자료를 불러오거나 빈 Catalog에서 시작할 수 있습니다. 기존 인력·그룹은 유지됩니다.</p><div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<div><strong>${counts[l.key]}</strong><small>${l.label}</small></div>`).join("")}</div><p class="muted">L4 필수 ${counts.required}건 · 옵션 ${counts.optional}건</p><div class="actions">${button("catalog-initialize", "서비스오더 v3.0으로 시작", "primary", 'data-mode="baseline"')}${button("catalog-initialize", "빈 Catalog로 시작", "", 'data-mode="empty"')}</div><p class="muted">적용 후 상단 저장을 눌러야 파일에 반영됩니다.</p></section>`
+    );
+  if (c.version === 1)
+    return (
+      intro +
+      `<section class="card catalog-welcome"><h2>설계·개발 담당자 방식으로 전환</h2><p>기존 복수 담당자에서 Sub Component 설계자 한 명을 정합니다. 하위 L3·L4에 기본 지정하고 L4 개발자와 Phase는 미지정으로 시작합니다.</p><p class="notice">여러 담당자가 있으면 직접 선택합니다. 이전 담당자 목록은 전환 전 정보로 보존하며 자동으로 한 명을 고르지 않습니다. 전환 취소 시 현재 데이터는 그대로입니다.</p><div class="choice-list catalog-assignee-list">${c.subcomponents.map((n) => `<div><strong>${esc(catalogLabel(n, "subcomponents"))}</strong><p class="muted">기존 담당자: ${n.assigneeIds.length ? n.assigneeIds.map((id) => esc(nameOf(state.data.people, id))).join(", ") : "미지정"}</p></div>`).join("")}</div>${button("catalog-upgrade", "담당자 방식 전환", "primary")}</section>`
     );
   const key = state.catalogLevel,
-    level = catalogLevel(key),
-    count = catalogCounts(c),
     index = CATALOG_LEVELS.findIndex((l) => l.key === key),
-    ancestors = CATALOG_LEVELS.slice(0, index),
-    filters = selectedCatalogFilters(),
+    level = catalogLevel(key),
     list = catalogRows(
       c,
       key,
-      filters,
+      selectedCatalogFilters(),
       state.catalogQuery,
       state.catalogRequirement,
+      state.catalogPhase,
     );
-  const filtersHTML = ancestors
-    .map((l) => {
-      const options = catalogRows(c, l.key, selectedCatalogFilters(l.key));
-      return field(
+  const filters = CATALOG_LEVELS.slice(0, index)
+    .map((l) =>
+      field(
         l.label,
-        `<select data-catalog-filter="${l.key}" aria-label="Catalog ${l.label} 필터">${option("", "전체")}${options.map((n) => option(n.id, catalogLabel(n), state.catalogFilters[l.key] === n.id)).join("")}</select>`,
-      );
+        `<select data-catalog-filter="${l.key}" aria-label="Catalog ${l.label} 필터">${option("", "전체")}${catalogRows(
+          c,
+          l.key,
+          selectedCatalogFilters(l.key),
+        )
+          .map((n) =>
+            option(
+              n.id,
+              l.key === "l2"
+                ? catalogLabel(n, l.key)
+                : catalogDisplayName(l.key, n),
+              state.catalogFilters[l.key] === n.id,
+            ),
+          )
+          .join("")}</select>`,
+      ),
+    )
+    .join("");
+  const rows = list
+    .map((n) => {
+      const next = CATALOG_LEVELS[index + 1],
+        path = catalogPath(c, key, n.id).slice(0, -1),
+        childCount = next
+          ? c[next.key].filter((x) => x.parentId === n.id).length
+          : 0;
+      return `<tr data-catalog-row="${n.id}" data-level="${key}" tabindex="0" aria-label="${esc(n.code)} ${esc(catalogDisplayName(key, n))}"><td class="catalog-code">${esc(n.code)}</td><td><strong>${esc(catalogDisplayName(key, n))}</strong></td>${key === "l4" ? `<td><span class="badge ${n.required ? "current" : "tbd"}">${n.required ? "필수" : "옵션"}</span></td><td>${catalogPhaseSelect(n.phase, `data-catalog-phase="${n.id}"`)}</td><td>${catalogOwnerCell(key, n)}</td><td><div class="catalog-assignment ${state.data.people.find((p) => p.id === n.developerId)?.kind === "tbd" ? "is-tbd" : ""}">${catalogOwnerSelect(n.developerId, `data-catalog-developer="${n.id}"`)}</div></td>` : `${index ? `<td class="catalog-path">${path.map((p) => esc(catalogLabel(p))).join(" › ")}</td>` : ""}${["subcomponents", "l3"].includes(key) ? `<td>${catalogOwnerCell(key, n)}</td>` : ""}<td>${next.label} ${childCount}건</td>`}<td><div class="actions">${button("catalog-edit", "수정", "small", `data-level="${key}" data-id="${n.id}"`)}${next ? button("catalog-drill", "하위 보기", "small ghost", `data-level="${key}" data-id="${n.id}"`) : ""}</div></td></tr>`;
     })
     .join("");
   return (
     intro +
-    `<div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<button type="button" data-action="catalog-level" data-level="${l.key}" class="${l.key === key ? "selected" : ""}"><strong>${count[l.key]}</strong><small>${l.label}</small></button>`).join("")}</div><div class="tabs catalog-tabs" aria-label="Catalog 계층">${CATALOG_LEVELS.map((l) => button("catalog-level", l.label, l.key === key ? "active" : "", `data-level="${l.key}"`)).join("")}</div><section class="card catalog-filter-panel"><div class="catalog-filters">${filtersHTML}${field("ID·명칭·설명 검색", textInput("catalogQuery", state.catalogQuery, 'id="catalog-query" type="search" placeholder="검색어 입력" maxlength="200"'))}${key === "l4" ? field("필수/옵션", `<select id="catalog-requirement" aria-label="Catalog 필수여부">${option("all", "전체", state.catalogRequirement === "all")}${option("required", "필수", state.catalogRequirement === "required")}${option("optional", "옵션", state.catalogRequirement === "optional")}</select>`) : ""}</div><div class="catalog-filter-foot"><small>${c.sourceVersion ? "기준 자료 v" + esc(c.sourceVersion) + " · 편집 가능한 현재 Catalog" : "직접 등록한 Catalog"} · L4 필수 ${count.required} / 옵션 ${count.optional}</small>${button("catalog-clear-filters", "조회 조건 초기화", "small")}</div></section><div class="toolbar"><strong>${level.label} ${list.length}건 <small>전체 ${count[key]}건</small></strong><small>${key === "subcomponents" ? "담당자는 여러 명을 연결할 수 있습니다." : "행을 선택하면 " + (key === "l4" ? "상세를 수정합니다." : "하위 항목을 봅니다.")}</small></div><div class="table-wrap"><table class="catalog-table"><thead><tr><th>ID</th><th>명칭 / 한글 명칭</th>${index ? "<th>상위 경로</th>" : ""}${key === "l4" ? "<th>기능 설명</th><th>필수여부</th>" : key === "subcomponents" ? "<th>담당자</th>" : "<th>하위 항목</th>"}<th>관리</th></tr></thead><tbody>${list
-      .map((n) => {
-        const path = catalogPath(c, key, n.id).slice(0, -1),
-          next = CATALOG_LEVELS[index + 1],
-          childCount = next
-            ? c[next.key].filter((x) => x.parentId === n.id).length
-            : 0;
-        const owners =
-          key === "subcomponents"
-            ? n.assigneeIds
-                .map((id) => state.data.people.find((p) => p.id === id))
-                .filter(Boolean)
-            : [];
-        return `<tr data-catalog-row="${n.id}" data-level="${key}" tabindex="0" aria-label="${esc(n.code)} ${esc(n.name)}"><td class="catalog-code">${esc(n.code)}</td><td><strong>${esc(n.name)}</strong>${n.koreanName ? `<small>${esc(n.koreanName)}</small>` : ""}</td>${index ? `<td class="catalog-path">${path.map((p) => esc(p.code)).join(" › ")}</td>` : ""}${key === "l4" ? `<td class="catalog-description"><span title="${esc(n.description)}">${esc(n.description)}</span></td><td><span class="badge ${n.required ? "current" : "tbd"}">${n.required ? "필수" : "옵션"}</span></td>` : key === "subcomponents" ? `<td class="catalog-owners">${owners.length ? owners.map((p) => `<span class="badge ${status(p) === "종료" ? "ended-owner" : ""}">${esc(p.name)}${status(p) === "종료" ? " · 종료" : p.kind === "tbd" ? " · TBD" : ""}</span>`).join(" ") : "<small>미지정</small>"}</td>` : `<td>${next ? next.label + " " + childCount + "건" : ""}</td>`}<td><div class="actions">${button("catalog-edit", "수정", "small", `data-level="${key}" data-id="${n.id}"`)}${key === "subcomponents" ? button("catalog-assignees", "담당자", "small", `data-id="${n.id}"`) : ""}${next ? button("catalog-drill", "하위 보기", "small ghost", `data-level="${key}" data-id="${n.id}"`) : ""}</div></td></tr>`;
-      })
-      .join(
-        "",
-      )}</tbody></table>${list.length ? "" : `<div class="catalog-empty"><h3>${count[key] ? "조회 조건에 맞는 항목이 없습니다." : "등록된 " + level.label + " 항목이 없습니다."}</h3><p class="muted">${count[key] ? "조회 조건을 바꾸거나 초기화해 주세요." : "상위 항목을 먼저 등록한 뒤 추가해 주세요."}</p>${button("catalog-add", level.label + " 추가", "primary")}</div>`}</div><p class="muted">ID를 변경해도 하위 항목과 담당자 연결은 유지됩니다. 하위 항목 또는 담당자가 연결되어 있으면 정리 후 삭제할 수 있습니다.</p>`
+    `<div class="catalog-counts">${CATALOG_LEVELS.map((l) => `<button type="button" data-action="catalog-level" data-level="${l.key}" class="${l.key === key ? "selected" : ""}"><strong>${counts[l.key]}</strong><small>${l.label}</small></button>`).join("")}</div><div class="tabs catalog-tabs">${CATALOG_LEVELS.map((l) => button("catalog-level", l.label, l.key === key ? "active" : "", `data-level="${l.key}"`)).join("")}</div><section class="card catalog-filter-panel"><div class="catalog-filters ${key === "l4" ? "l4-filters" : ""}">${filters}${key === "l4" ? field("Phase", `<select id="catalog-phase-filter" aria-label="Catalog Phase 필터">${option("all", "전체", state.catalogPhase === "all")}${option("unassigned", "미지정", state.catalogPhase === "unassigned")}${[1, 2, 3].map((n) => option(n, "Phase " + n, state.catalogPhase === String(n))).join("")}</select>`) : ""}${field("ID·명칭·설명 검색", textInput("catalogQuery", state.catalogQuery, 'id="catalog-query" type="search" maxlength="200" placeholder="검색어 입력"'))}${key === "l4" ? field("필수여부", `<select id="catalog-requirement" aria-label="Catalog 필수여부">${option("all", "전체", state.catalogRequirement === "all")}${option("required", "필수", state.catalogRequirement === "required")}${option("optional", "옵션", state.catalogRequirement === "optional")}</select>`) : ""}</div><div class="catalog-filter-foot"><small>기준 자료 ${c.sourceVersion ? "v" + esc(c.sourceVersion) : "직접 등록"} · L4 필수 ${counts.required} / 옵션 ${counts.optional}</small>${button("catalog-clear-filters", "조회 조건 초기화", "small")}</div></section>${catalogContext(c)}<div class="toolbar"><strong>${level.label} ${list.length}건 <small>전체 ${counts[key]}건</small></strong><small>선택 변경은 현재 작업에 적용되며 파일 반영은 상단 저장을 누릅니다.</small></div><div class="table-wrap"><table class="catalog-table role-catalog"><thead><tr><th>${key === "l4" ? "L4 " : ""}ID</th><th>${key === "l2" ? "영문 명칭" : ["subcomponents", "l3", "l4"].includes(key) ? "한글 기능 명칭" : "명칭"}</th>${key === "l4" ? "<th>필수여부</th><th>Phase</th><th>설계자</th><th>개발자</th>" : `${index ? "<th>상위 경로</th>" : ""}${["subcomponents", "l3"].includes(key) ? "<th>설계자</th>" : ""}<th>하위 항목</th>`}<th>관리</th></tr></thead><tbody>${rows}</tbody></table>${list.length ? "" : '<div class="catalog-empty"><h3>표시할 항목이 없습니다.</h3><p class="muted">조회 조건을 초기화하거나 항목을 추가해 주세요.</p>' + button("catalog-add", level.label + " 추가", "primary") + "</div>"}</div><p class="muted">SC와 동일은 현재 설계자 ID가 같은 상태입니다. 이전 편집 이력과 관계없이 SC의 기존 설계자와 같으면 함께 변경됩니다.</p>`
   );
 }
 function catalogNavigate(key, id) {
@@ -4148,23 +4473,49 @@ function catalogNavigate(key, id) {
     catalogNodeDialog(key, id);
     return;
   }
-  const path = catalogPath(c, key, id);
-  state.catalogFilters = Object.fromEntries(path.map((n) => [n.level, n.id]));
+  state.catalogFilters = Object.fromEntries(
+    catalogPath(c, key, id).map((n) => [n.level, n.id]),
+  );
   state.catalogLevel = CATALOG_LEVELS[index + 1].key;
   state.catalogQuery = "";
   state.catalogRequirement = "all";
+  state.catalogPhase = "all";
   render();
+}
+async function catalogConfirmDesigner(key, id, value) {
+  if (key !== "subcomponents") return true;
+  const c = state.data.catalog,
+    sc = c.subcomponents.find((n) => n.id === id);
+  if (sc.designerId === value) return true;
+  const l3 = c.l3.filter((n) => n.parentId === id),
+    ids = new Set(l3.map((n) => n.id)),
+    l4 = c.l4.filter((n) => ids.has(n.parentId));
+  return confirmDialog(
+    "하위 설계자 함께 변경",
+    `${nameOf(state.data.people, sc.designerId) || "미지정"} → ${nameOf(state.data.people, value) || "미지정"}\n현재 기존 설계자와 같은 L3 ${l3.filter((n) => n.designerId === sc.designerId).length}건, L4 ${l4.filter((n) => n.designerId === sc.designerId).length}건만 변경합니다. 다른 설계자는 유지합니다.`,
+  );
+}
+async function catalogApplyDesigner(key, id, value) {
+  try {
+    if (!(await catalogConfirmDesigner(key, id, value))) {
+      render(true);
+      return;
+    }
+    await mutate((d) => setCatalogDesigner(d, key, id, value, todayKST()));
+  } catch (e) {
+    toast(e.message);
+    render(true);
+  }
 }
 function bindCatalog() {
   if (state.page !== "catalog") return;
   document.querySelectorAll("[data-catalog-row]").forEach((row) => {
     row.onclick = (e) => {
-      if (e.target.closest("button")) return;
+      if (e.target.closest("button,select,input")) return;
       catalogNavigate(row.dataset.level, row.dataset.catalogRow);
     };
     row.onkeydown = (e) => {
-      if (e.target !== row) return;
-      if (e.key === "Enter" || e.key === " ") {
+      if (e.target === row && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault();
         catalogNavigate(row.dataset.level, row.dataset.catalogRow);
       }
@@ -4177,35 +4528,31 @@ function bindCatalog() {
           index = CATALOG_LEVELS.findIndex((l) => l.key === key);
         for (const l of CATALOG_LEVELS.slice(index))
           delete state.catalogFilters[l.key];
-        if (input.value) {
-          const path = catalogPath(state.data.catalog, key, input.value);
-          for (const n of path) state.catalogFilters[n.level] = n.id;
-        }
+        if (input.value)
+          for (const n of catalogPath(state.data.catalog, key, input.value))
+            state.catalogFilters[n.level] = n.id;
         render(true);
       }),
   );
   const query = $("#catalog-query");
   if (query) {
     let composing = false;
-    const updateSearch = () => {
+    const update = () => {
       if (!query.isConnected) return;
-      const value = query.value,
-        position = query.selectionStart;
-      state.catalogQuery = value;
+      const position = query.selectionStart;
+      state.catalogQuery = query.value;
       render(true);
-      const next = $("#catalog-query");
-      next.focus();
-      next.setSelectionRange(position, position);
+      const input = $("#catalog-query");
+      input.focus();
+      input.setSelectionRange(position, position);
     };
-    query.addEventListener("compositionstart", () => {
-      composing = true;
-    });
-    query.addEventListener("input", (e) => {
-      if (!composing && !e.isComposing) updateSearch();
-    });
+    query.addEventListener("compositionstart", () => (composing = true));
     query.addEventListener("compositionend", () => {
       composing = false;
-      updateSearch();
+      update();
+    });
+    query.addEventListener("input", (e) => {
+      if (!composing && !e.isComposing) update();
     });
   }
   const requirement = $("#catalog-requirement");
@@ -4214,47 +4561,135 @@ function bindCatalog() {
       state.catalogRequirement = requirement.value;
       render(true);
     };
+  const phase = $("#catalog-phase-filter");
+  if (phase)
+    phase.onchange = () => {
+      state.catalogPhase = phase.value;
+      render(true);
+    };
+  document
+    .querySelectorAll("[data-catalog-designer]")
+    .forEach(
+      (input) =>
+        (input.onchange = () =>
+          catalogApplyDesigner(
+            input.dataset.level,
+            input.dataset.catalogDesigner,
+            input.value || null,
+          )),
+    );
+  document
+    .querySelectorAll("[data-catalog-developer],[data-catalog-phase]")
+    .forEach(
+      (input) =>
+        (input.onchange = async () => {
+          try {
+            await mutate((d) => {
+              if (input.dataset.catalogDeveloper)
+                setCatalogDeveloper(
+                  d,
+                  input.dataset.catalogDeveloper,
+                  input.value || null,
+                  todayKST(),
+                );
+              else
+                setCatalogPhase(
+                  d.catalog,
+                  input.dataset.catalogPhase,
+                  input.value ? Number(input.value) : null,
+                );
+            });
+          } catch (e) {
+            toast(e.message);
+            render(true);
+          }
+        }),
+    );
 }
 async function initializeCatalog(mode) {
   if (
     !(await confirmDialog(
       "Catalog 시작하기",
       mode === "baseline"
-        ? "서비스오더 v3.0의 도메인 3개, L2 5개, Sub Component 12개, L3 20개, L4 106개를 현재 작업에 추가할까요?"
-        : "빈 Catalog를 만들어 직접 항목을 등록할까요?",
+        ? "서비스오더 v3.0 기준 106개 L4를 현재 작업에 추가할까요?"
+        : "빈 Catalog로 시작할까요?",
     ))
   )
     return;
   await mutate((d) => {
-    if (d.catalog)
-      throw Error("이미 Catalog가 존재합니다. 기존 내용을 덮어쓰지 않습니다.");
-    d.catalog = mode === "baseline" ? baselineCatalog() : emptyCatalog();
+    if (d.catalog) throw Error("기존 Catalog는 덮어쓸 수 없습니다.");
+    d.catalog = upgradeCatalog(
+      mode === "baseline" ? baselineCatalog() : emptyCatalog(),
+    );
     d.schemaVersion = SCHEMA;
+  });
+}
+function catalogUpgradeDialog() {
+  const c = state.data.catalog;
+  if (c?.version !== 1) return;
+  dialog({
+    title: "기존 담당자를 단일 설계자로 전환",
+    body: `<p>Sub Component별 설계자를 확인합니다. 여러 명이면 한 명 또는 미지정을 직접 선택해 주세요. 이전 목록은 전환 전 정보로 보존합니다.</p><div class="choice-list catalog-assignee-list">${c.subcomponents.map((sc) => field(esc(catalogLabel(sc, "subcomponents")), `<select name="legacy-${sc.id}" required>${sc.assigneeIds.length > 1 ? option("", "선택해 주세요", true) : ""}${option("none", "미지정", !sc.assigneeIds.length)}${sc.assigneeIds.map((id) => option(id, nameOf(state.data.people, id), sc.assigneeIds.length === 1)).join("")}</select>`)).join("")}</div><p class="muted">하위 설계자는 선택한 SC 설계자로 시작합니다. 개발자와 Phase는 미지정이며 상단 저장 전에는 파일을 바꾸지 않습니다.</p>`,
+    apply: "전환 적용",
+    onApply: async (f) => {
+      const choices = Object.fromEntries(
+        c.subcomponents.map((sc) => [
+          sc.id,
+          f.elements["legacy-" + sc.id].value === "none"
+            ? null
+            : f.elements["legacy-" + sc.id].value,
+        ]),
+      );
+      await mutate((d) => {
+        d.catalog = upgradeCatalog(d.catalog, choices);
+        d.schemaVersion = SCHEMA;
+      });
+    },
   });
 }
 function catalogNodeDialog(key = state.catalogLevel, id = null) {
   const c = state.data.catalog;
-  if (!c) return;
+  if (c?.version !== 2) return;
   const level = catalogLevel(key),
-    old = id ? c[key].find((n) => n.id === id) : null;
+    old = id ? c[key].find((n) => n.id === id) : null,
+    lower = ["subcomponents", "l3", "l4"].includes(key),
+    parentId = old?.parentId ?? state.catalogFilters[level.parent] ?? null;
   const parents = level.parent
     ? c[level.parent].map((n) => ({
         ...n,
-        name: catalogPath(c, level.parent, n.id).map(catalogLabel).join(" › "),
+        name: catalogPath(c, level.parent, n.id)
+          .map((p) => catalogLabel(p))
+          .join(" › "),
       }))
     : [];
-  const parentId = old?.parentId ?? state.catalogFilters[level.parent] ?? null;
-  const body = `<div class="form-grid">${level.parent ? field("상위 " + catalogLevel(level.parent).label + ' <b class="required">*</b>', select("parentId", parents, parentId), true) : ""}${field('ID <b class="required">*</b>', textInput("code", old?.code ?? "", 'required maxlength="120" autocomplete="off"'))}${field('명칭 <b class="required">*</b>', textInput("name", old?.name ?? "", 'required maxlength="200"'))}${field("한글 명칭", textInput("koreanName", old?.koreanName ?? "", 'maxlength="200"'), key !== "l4")}${key === "l4" ? field("필수여부", `<select name="required">${option("required", "필수", old?.required !== false)}${option("optional", "옵션", old?.required === false)}</select>`) + field("L4 기능 설명", `<textarea name="description" rows="6" maxlength="20000">${esc(old?.description)}</textarea>`, true) : ""}</div>${level.parent ? '<p class="muted">상위 항목을 변경해도 하위 항목의 ID는 자동으로 바뀌지 않습니다.</p>' : ""}${old && key === "subcomponents" ? '<p class="notice">담당자 연결은 목록의 담당자 버튼에서 관리합니다. 이름이나 ID를 수정해도 기존 연결은 유지됩니다.</p>' : ""}`;
+  const body = `<div class="form-grid">${level.parent ? field("상위 " + catalogLevel(level.parent).label, select("parentId", parents, parentId), true) : ""}${field('ID <b class="required">*</b>', textInput("code", old?.code ?? "", 'required maxlength="120"'))}${field((lower ? "한글 명칭" : "영문 명칭") + ' <b class="required">*</b>', textInput(lower ? "koreanName" : "name", lower ? (old?.koreanName ?? "") : (old?.name ?? ""), 'required maxlength="200"'))}${field(lower ? "참고 영문명칭 (선택)" : "한글 명칭 (선택)", textInput(lower ? "name" : "koreanName", lower ? (old?.name ?? "") : (old?.koreanName ?? ""), 'maxlength="200"'))}${lower && old ? field("설계자", catalogOwnerSelect(old.designerId, 'name="designerId"')) : ""}${key === "l4" ? field("필수여부", `<select name="required">${option("required", "필수", old?.required !== false)}${option("optional", "옵션", old?.required === false)}</select>`) + field("Phase", catalogPhaseSelect(old?.phase ?? null, 'name="phase"')) + (old ? field("개발자", catalogOwnerSelect(old.developerId, 'name="developerId"')) : "") + field("기능 설명", `<textarea name="description" rows="6" maxlength="20000">${esc(old?.description)}</textarea>`, true) : ""}</div><p class="muted">기존 항목의 상위 소속을 변경해도 설계자와 하위 ID는 유지됩니다. 새 L3·L4 설계자는 소속 SC에서 기본 지정합니다.</p>${old?.legacyAssigneeIds?.length ? `<p class="notice">전환 전 담당자(보존): ${old.legacyAssigneeIds.map((id) => esc(nameOf(state.data.people, id))).join(", ")} · 현재 설계자와 별도 정보입니다.</p>` : ""}`;
   dialog({
     title: `${level.label} ${old ? "수정" : "추가"}`,
     body,
     wide: key === "l4",
     left: old ? button("catalog-remove", "삭제", "danger") : "",
     onApply: async (f) => {
-      const values = Object.fromEntries(new FormData(f));
-      const input = { ...values, required: values.required === "required" };
+      const v = Object.fromEntries(new FormData(f));
+      if (
+        lower &&
+        old &&
+        !(await catalogConfirmDesigner(key, id, v.designerId || null))
+      )
+        return false;
       await mutate((d) => {
-        upsertCatalogNode(d.catalog, key, input, id);
+        const n = upsertCatalogNode(
+          d.catalog,
+          key,
+          { ...v, required: v.required === "required" },
+          id,
+        );
+        if (lower && old)
+          setCatalogDesigner(d, key, n.id, v.designerId || null, todayKST());
+        if (key === "l4") {
+          setCatalogPhase(d.catalog, n.id, v.phase ? Number(v.phase) : null);
+          if (old)
+            setCatalogDeveloper(d, n.id, v.developerId || null, todayKST());
+        }
       });
     },
     setup: (f, item) => {
@@ -4262,12 +4697,11 @@ function catalogNodeDialog(key = state.catalogLevel, id = null) {
         "click",
         async () => {
           try {
-            const copy = clone(state.data.catalog);
-            deleteCatalogNode(copy, key, id);
+            deleteCatalogNode(clone(state.data.catalog), key, id);
             if (
               !(await confirmDialog(
                 `${level.label} 삭제`,
-                `${old.code} · ${old.koreanName || old.name} 항목을 삭제할까요?`,
+                `${old.code} · ${catalogDisplayName(key, old)} 항목을 삭제할까요?`,
                 "삭제",
               ))
             )
@@ -4286,25 +4720,6 @@ function catalogNodeDialog(key = state.catalogLevel, id = null) {
           }
         },
       );
-    },
-  });
-}
-function catalogAssigneesDialog(id) {
-  const c = state.data.catalog,
-    node = c?.subcomponents.find((n) => n.id === id);
-  if (!node) return;
-  const people = sortedPeople(
-    state.data,
-    state.data.people.filter(
-      (p) => status(p) !== "종료" || node.assigneeIds.includes(p.id),
-    ),
-  );
-  dialog({
-    title: "Sub Component 담당자 연결",
-    body: `<div class="notice"><strong>${esc(node.code)}</strong><br>${esc(node.koreanName || node.name)}</div><p>여러 담당자를 선택할 수 있습니다. 아무도 선택하지 않으면 연결을 해제합니다.</p><div class="choice-list catalog-assignee-list">${people.map((p) => `<label><input type="checkbox" name="assignee" value="${p.id}" ${node.assigneeIds.includes(p.id) ? "checked" : ""}><span><strong>${esc(p.name)}</strong><br><small>${status(p)} · ${esc(nameOf(state.data.companies, p.companyId))} · ${esc(nameOf(state.data.roles, p.roleId))}</small></span></label>`).join("")}</div><p class="muted">그룹 구성안과 독립된 공통 담당자 연결입니다. 연결된 인력이 종료되면 표시를 유지해 직접 재배정할 수 있고, 인력을 삭제하면 해당 연결만 함께 정리합니다.</p>`,
-    onApply: async (f) => {
-      const ids = new FormData(f).getAll("assignee");
-      await mutate((d) => setCatalogAssignees(d, id, ids, todayKST()));
     },
   });
 }
@@ -4523,6 +4938,7 @@ async function dispatch(b) {
         state.catalogLevel = b.dataset.level;
         state.catalogQuery = "";
         state.catalogRequirement = "all";
+        state.catalogPhase = "all";
         render(true);
         break;
       case "catalog-add":
@@ -4534,13 +4950,21 @@ async function dispatch(b) {
       case "catalog-drill":
         catalogNavigate(b.dataset.level, b.dataset.id);
         break;
-      case "catalog-assignees":
-        catalogAssigneesDialog(b.dataset.id);
+      case "catalog-upgrade":
+        catalogUpgradeDialog();
+        break;
+      case "catalog-context-designer":
+        await catalogApplyDesigner(
+          "subcomponents",
+          b.dataset.id,
+          $("#catalog-context-sc").value || null,
+        );
         break;
       case "catalog-clear-filters":
         state.catalogFilters = {};
         state.catalogQuery = "";
         state.catalogRequirement = "all";
+        state.catalogPhase = "all";
         render(true);
         break;
       case "add-person":
@@ -5004,11 +5428,10 @@ function personDialog(id = null, kind = "confirmed", convert = false) {
 async function deletePerson(id) {
   const p = state.data.people.find((x) => x.id === id);
   const warnings = [];
-  for (const sc of state.data.catalog?.subcomponents ?? [])
-    if (sc.assigneeIds.includes(id))
-      warnings.push(
-        `Catalog: ${sc.code} (${sc.koreanName || sc.name}) 담당자 연결 해제`,
-      );
+  for (const sc of catalogPersonLinks(state.data, id))
+    warnings.push(
+      `Catalog: ${sc.code} (${sc.koreanName || sc.name}) 담당자 연결 해제`,
+    );
   for (const plan of state.data.plans) {
     for (const g of [...plan.groups, ...plan.parents])
       if (g.leaderId === id)

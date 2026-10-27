@@ -1,6 +1,6 @@
 {
   "name": "nova-focal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,8 @@
     "package": "npm run build && node scripts/package.mjs",
     "test:browser:groups": "node tests/groups-browser.mjs",
     "catalog:generate": "node scripts/import-catalog.mjs",
-    "test:browser:catalog": "node tests/catalog-browser.mjs"
+    "test:browser:catalog": "node tests/catalog-browser.mjs",
+    "test:browser:roles": "node tests/catalog-roles-browser.mjs"
   },
   "devDependencies": {
     "playwright": "1.58.2"

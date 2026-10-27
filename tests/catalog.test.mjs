@@ -85,6 +85,7 @@ test("old schema 1 data with no catalog remains valid, does not initialize on st
 });
 test("schema 2 validates catalog; old schema cannot silently contain or lose assignment data", () => {
   const d = withCatalog();
+  d.schemaVersion = 2;
   validateData(d);
   d.schemaVersion = 1;
   assert.throws(() => validateData(d), /스키마 2/);

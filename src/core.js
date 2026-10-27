@@ -1,5 +1,5 @@
 import { validateCatalog, cleanCatalogAssignments } from "./catalog.js";
-export const SCHEMA = 2;
+export const SCHEMA = 3;
 export const FOREVER = "9999-12-31";
 export const clone = (x) => structuredClone(x);
 export const uid = () => globalThis.crypto.randomUUID();
@@ -533,12 +533,14 @@ export function copyPlan(plan, name) {
   };
 }
 export function validateData(d) {
-  if (!d || ![1, SCHEMA].includes(d.schemaVersion))
+  if (!d || ![1, 2, SCHEMA].includes(d.schemaVersion))
     throw Error(
       "지원하지 않는 데이터 스키마입니다. 원본은 변경하지 않았습니다.",
     );
   if (d.schemaVersion === 1 && d.catalog !== undefined)
     throw Error("Catalog 데이터는 스키마 2가 필요합니다. 원본을 유지합니다.");
+  if (d.catalog?.version === 2 && d.schemaVersion !== SCHEMA)
+    throw Error("설계·개발 담당자 데이터는 새 스키마 3이 필요합니다.");
   const fail = () => {
     throw Error(
       "데이터 구조 또는 참조가 손상되었습니다. 원본은 변경하지 않았습니다.",
