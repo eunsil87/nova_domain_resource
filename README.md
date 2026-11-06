@@ -123,3 +123,7 @@ GitHub 저장소는 `eunsil87/nova_domain_resource`, 기본 개발 기준 브랜
 - 상위 필터에서 SC와 L3를 고르면 시안처럼 컨텍스트 영역을 보여줍니다. 목록 선택은 세션에 즉시 적용하고 파일은 상단 저장으로 반영합니다.
 - 신규/전환 파일은 전체 스키마 3, Catalog 구조 2를 사용하므로 저장 후에는 새 HTML로 계속 사용합니다. 기존 1/2 형식은 읽기 지원합니다.
 - **할당 현황 그래프는 집계 기준 미확정으로 보류**하며 버튼은 비활성입니다.
+
+## 폐쇄망 개발 소스 이관
+
+소스·요구사항·초기 인력/설정/Catalog만 담은 묶음의 사용법은 [폐쇄망 개발 안내](docs/OFFLINE-DEVELOPMENT.md)를 참고하세요. Node.js 22 이상이 준비되어 있으면 `npm install` 없이 `node scripts/build.mjs`로 HTML을 만들 수 있습니다. 기초 JSON 생성은 `node scripts/export-initial-data.mjs`이며 실제 사용자 파일과 구분합니다.
